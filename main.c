@@ -110,8 +110,12 @@ unsigned char wasm_code[] = {
 };
 unsigned int wasm_size = 1140;
 
+/*
+ * Called by the WASM program to print an integer.
+ */
 m3ApiRawFunction(print_int)
 {
+    // Specify the function's signature.
     m3ApiReturnType(int32_t);
     m3ApiGetArg(int32_t, i);
 
