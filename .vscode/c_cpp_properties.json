@@ -1,0 +1,27 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "/usr/src/linux-headers-6.8.0-49-generic/arch/x86/include/",
+                "/usr/src/linux-headers-6.8.0-49-generic/arch/x86/include/generated/",
+                "/usr/src/linux-headers-6.8.0-49-generic/include/",
+                "/usr/src/linux-headers-6.8.0-49-generic/arch/x86/include/uapi/",
+                "/usr/src/linux-headers-6.8.0-49-generic/arch/x86/include/generated/uapi/",
+                "/usr/src/linux-headers-6.8.0-49-generic/include/uapi/",
+                "/usr/src/linux-headers-6.8.0-49-generic/include/generated/uapi/",
+                "/usr/src/linux-headers-6.8.0-49-generic/ubuntu/include/",
+                "${workspaceFolder}/**"
+            ],
+            "defines": [
+                "__KERNEL__",
+                "MODULE"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu11",
+            "cppStandard": "gnu++11",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

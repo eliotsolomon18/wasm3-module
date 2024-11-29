@@ -1,0 +1,3 @@
+[submodule "wasm3-kernel"]
+	path = wasm3-kernel
+	url = https://github.com/eliotsolomon18/wasm3-kernel
