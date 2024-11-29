@@ -4,8 +4,8 @@ CFLAGS = -target wasm32 -nostdlib
 LDFLAGS = -Wl,--no-entry -Wl,--export-all
 
 # Files
-SRC = two.c
-WASM = two.wasm
+SRC = prog.c
+WASM = prog.wasm
 WASM_C = $(WASM).c
 
 # Default target
