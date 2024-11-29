@@ -1,4 +1,5 @@
-int two()
+int
+two()
 {
-	return (2);
+    return (2);
 }
