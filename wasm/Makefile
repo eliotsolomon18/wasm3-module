@@ -18,6 +18,8 @@ $(WASM): $(SRC)
 # Generate C representation of the WebAssembly file
 $(WASM_C): $(WASM)
 	xxd -i $< > $@
+	sed -i -E 's/[a-z_]+\[\]/wasm_code[]/' $@
+	sed -i -E 's/[a-z_]+\s=/wasm_size =/' $@
 
 # Clean up generated files
 clean:

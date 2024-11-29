@@ -24,10 +24,12 @@ ccflags-y += -I$(src)/wasm3-kernel/source/
 PWD := $(CURDIR)
 
 # Build the kernel module.
-all: 
+all:
+	$(MAKE) -C wasm/
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules 
 
 # Remove all files produced by the build process.
-clean: 
+clean:
+	$(MAKE) -C wasm/ clean
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 	rm -f wasm3-kernel/source/*.o wasm3-kernel/source/.*.cmd
