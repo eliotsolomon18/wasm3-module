@@ -1,6 +1,8 @@
 # Wasm3 Kernel Module
 
-This repository contains a kernel module that runs a small WASM program in kernel space. It illustrates how to expose functions from the kernel module to the WASM program as well as how to pass a variable-length data structure from the module to the program.
+This repository contains a kernel module that sets up the wasm runtime in the kernel space. A userspace wasm program can then be loaded into the wasm runtime. The runtime will look for a function called `nf_filter` in the userspace program and attempt to hook into netfilter.
+
+The `wasm/` directory contains an example program which simply drops all packets.
 
 ## Structure
 
@@ -19,30 +21,31 @@ This repository contains a kernel module that runs a small WASM program in kerne
 ```
 $ make
 ```
-
-## Install
-
+## Load module and create dev file
 ```
-$ sudo insmod wasm.ko
+$ make load
 ```
 
-## Verify Install
-
+## Compile userspace wasm loader
 ```
-$ sudo lsmod | grep wasm
-```
-
-## Uninstall
-
-```
-$ sudo rmmod wasm
+$ gcc -o loader wasm/loader.c
 ```
 
-## Check Output
+## Verify that the module has been loaded successfully
+```
+$ sudo dmesg
+```
 
+## Load the userspace program
 ```
-$ sudo journalctl --since "1 hour ago" | grep kernel
+$ ./loader
 ```
+
+## Unload the kernel and remove the filter
+```
+$ make unload
+```
+
 
 ## Resources
 
@@ -53,3 +56,4 @@ $ sudo journalctl --since "1 hour ago" | grep kernel
 - https://surma.dev/things/c-to-webassembly/
 - https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/Memory
 - https://github.com/cisco-open/camblet-driver
+- https://www.apriorit.com/dev-blog/195-simple-driver-for-linux-os

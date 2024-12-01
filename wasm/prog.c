@@ -16,11 +16,6 @@ int32_t print_int(int32_t i) __attribute__((
     __import_name__("print_int")
 ));
 
-int32_t set_nf_hook(int32_t drop_port) __attribute__((
-    __import_module__("custom"),
-    __import_name__("set_nf_hook")
-));
-
 // Stores the size of the requested allocation.
 uint64_t data_size = 0;
 
@@ -62,9 +57,9 @@ sum(void)
     return sum;
 }
 
-int32_t
-register_hook(void)
-{
-    int hook_set = set_nf_hook(DROP_PORT);
-    return hook_set;
+/**
+ * Dummy function that does nothing but return NF_DROP.
+ */
+uint64_t nf_filter(void) {
+    return 0;
 }

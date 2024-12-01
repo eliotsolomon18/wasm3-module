@@ -28,8 +28,19 @@ all:
 	$(MAKE) -C wasm/
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules 
 
+load:
+	sudo insmod wasm.ko
+	sudo mknod /dev/wasm_prog_load c 371 0
+	sudo chmod 666 /dev/wasm_prog_load
+
+unload:
+	sudo rmmod wasm
+	sudo rm /dev/wasm_prog_load
+
 # Remove all files produced by the build process.
 clean:
 	$(MAKE) -C wasm/ clean
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 	rm -f wasm3-kernel/source/*.o wasm3-kernel/source/.*.cmd
+	rm -f a.out
+	rm -f loader
