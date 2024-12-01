@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+#define DROP_PORT 20080
+
 // Convert between WASM pages and bytes
 #define PAGE_SIZE (64 * 1024)
 #define PAGES_TO_BYTES(p) (p * PAGE_SIZE)
