@@ -45,6 +45,9 @@ struct wasm_data {
   char *hook_cmd; // currently redundant
 };
 
+// Temporary fix to process sequentially
+DEFINE_MUTEX(lock);
+
 /**
  * Load and prepare the WASM program.
  */
@@ -98,7 +101,7 @@ static unsigned int nf_filter(void *priv, struct sk_buff *skb, const struct nf_h
     // Find the nf_filter() function in the WASM module.
     IM3Function nf_filter_func;
     uint32_t nf_ret_val = 1;
-
+    mutex_lock(&lock);
     int find_result = m3_FindFunction(&nf_filter_func, runtime, "nf_filter");
     if (find_result) {
       pr_err("Error finding function: %s\n", find_result);
@@ -116,11 +119,9 @@ static unsigned int nf_filter(void *priv, struct sk_buff *skb, const struct nf_h
     result = m3_GetResultsV(nf_filter_func, &nf_ret_val);
     if (result) {
       pr_err("Error getting results: %s\n", result);
-      m3_FreeRuntime(runtime);
-      m3_FreeEnvironment(env);
       return (-1);
     }
-
+    mutex_unlock(&lock);
     // The return value decides the behaviour of the filter
     return nf_ret_val;
 }
