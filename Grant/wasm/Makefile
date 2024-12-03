@@ -2,33 +2,30 @@
 
 # Compiler and flags
 CC = clang
-CFLAGS = -target wasm32 -O3 -nostdlib -nodefaultlibs
-LDFLAGS = -Wl,--no-entry \
-          -Wl,--export-all \
-          -Wl,--allow-undefined \
-          -Wl,--export=__heap_base \
-          -Wl,--initial-memory=131072
+CFLAGS = -target wasm32 -O3 -nostdlib \
+         -Wl,--no-entry -Wl,--export-all -Wl,--allow-undefined \
+         -Wl,--import-memory \
+         -Wl,--initial-memory=131072 -Wl,--max-memory=131072
 
-# Files
-SRC = prog.c
-WASM = prog.wasm
-WASM_C = prog.wasm.c
+# Source files
+SRCS = print_prog.c sum_prog.c
+
+# Output WASM files
+WASMS = print_prog.wasm sum_prog.wasm
 
 # Default target
-all: $(WASM_C)
+all: $(WASMS)
 
-# Compile WebAssembly file
-$(WASM): $(SRC)
-	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@
+# Compile print_prog.wasm
+print_prog.wasm: print_prog.c
+	$(CC) $(CFLAGS) $< -o $@
 
-# Generate C representation of the WebAssembly file
-$(WASM_C): $(WASM)
-	xxd -i $< > $@
-	sed -i -E 's/unsigned char [a-z_]+\[\]/const uint8_t wasm_code[]/' $@
-	sed -i -E 's/unsigned int [a-z_]+_len/const uint32_t wasm_size/' $@
+# Compile sum_prog.wasm
+sum_prog.wasm: sum_prog.c
+	$(CC) $(CFLAGS) $< -o $@
 
-# Clean up generated files
+# Clean target
 clean:
-	rm -f $(WASM) $(WASM_C) prog.o
+	rm -f $(WASMS)
 
 .PHONY: all clean
