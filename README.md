@@ -44,6 +44,43 @@ $ sudo rmmod wasm
 $ sudo journalctl --since "1 hour ago" | grep kernel
 ```
 
+## Syscall addition
+### 1. User-Space Program (`test_loader.c`)
+
+- Reads a WASM file from disk.
+- Writes the WASM code to a character device (`/dev/wasm_device`).
+- Uses the `ioctl` system call to instruct the kernel module to process the loaded WASM code.
+
+### 2. Kernel Module (`main.c`)
+
+- Implements a character device that can receive data from user space.
+- Provides `write` and `ioctl` file operations to handle data and commands from user space.
+- Processes and executes the WASM code upon receiving the appropriate `ioctl` command.
+
+
+
+Reads a WASM file from disk.
+Writes the WASM code to a character device (/dev/wasm_device).
+Uses the ioctl system call to instruct the kernel module to process the loaded WASM code.
+Kernel Module (main.c):
+Implements a character device that can receive data from user space.
+Provides write and ioctl file operations to handle data and commands from user space.
+Processes and executes the WASM code upon receiving the appropriate ioctl command.
+
+```
+$ cd Grant/wasm
+$ make clean
+$ make
+$ cd ..
+$ make clean
+$ make
+sudo rmmod wasm
+sudo insmod wasm.ko
+sudo lsmod | grep wasm
+sudo dmesg | tail
+sudo ./test_loader wasm/prog.wasm
+sudo rmmod wasm
+```
 ## Resources
 
 - https://sysprog21.github.io/lkmpg/
