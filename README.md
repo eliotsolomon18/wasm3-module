@@ -43,43 +43,25 @@ $ sudo rmmod wasm
 ```
 $ sudo journalctl --since "1 hour ago" | grep kernel
 ```
+## Grant -  add details later
+- Open first terminal:
+```
+$ sudo dmesg -w
+```
 
-## Syscall addition
-### 1. User-Space Program (`test_loader.c`)
-
-- Reads a WASM file from disk.
-- Writes the WASM code to a character device (`/dev/wasm_device`).
-- Uses the `ioctl` system call to instruct the kernel module to process the loaded WASM code.
-
-### 2. Kernel Module (`main.c`)
-
-- Implements a character device that can receive data from user space.
-- Provides `write` and `ioctl` file operations to handle data and commands from user space.
-- Processes and executes the WASM code upon receiving the appropriate `ioctl` command.
-
-
-
-Reads a WASM file from disk.
-Writes the WASM code to a character device (/dev/wasm_device).
-Uses the ioctl system call to instruct the kernel module to process the loaded WASM code.
-Kernel Module (main.c):
-Implements a character device that can receive data from user space.
-Provides write and ioctl file operations to handle data and commands from user space.
-Processes and executes the WASM code upon receiving the appropriate ioctl command.
+- Open second terminal:
 
 ```
 $ cd Grant/wasm
 $ make clean
-$ make
+$ make 
 $ cd ..
-$ make clean
-$ make
-sudo rmmod wasm
-sudo insmod wasm.ko
-sudo lsmod | grep wasm
-sudo dmesg | tail
-sudo ./test_loader wasm/prog.wasm
-sudo rmmod wasm
+$ make clean 
+$ make 
+$ sudo rmmod wasm
+$ sudo insmod wasm.ko
+$ sudo ./test_print_loader wasm/print_prog.wasm test
+$ sudo ./test_sum_loader wasm/sum_prog.wasm sum
 ```
 ## Resources
 
