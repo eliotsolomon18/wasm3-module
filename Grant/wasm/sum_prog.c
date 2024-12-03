@@ -1,4 +1,4 @@
-// prog.c
+// sum_prog.c
 
 #include <stdint.h>
 
@@ -32,22 +32,21 @@ uint32_t alloc(uint32_t n) {
     return addr;
 }
 
-__attribute__((import_module("custom"), import_name("print_int")))
-extern void print_int(int32_t x);
-
 // Exported sum function
 __attribute__((export_name("sum")))
-uint32_t sum() {
+uint32_t sum(uint32_t array_ptr, uint32_t size) {
     uint32_t total = 0;
 
-    // Create an array of 10 integers
-    int32_t array[10];
-
-    // Initialize the array and print values
-    for (uint32_t i = 0; i < 10; i++) {
-        array[i] = i;
-        print_int(array[i]);
-        total += array[i];
+    // Access the array in WASM memory using the array_ptr
+    for (uint32_t i = 0; i < size; i++) {
+        // Calculate the memory offset
+        uint32_t offset = array_ptr + i * sizeof(int32_t);
+        // Read the integer value from memory
+        int32_t value = *((int32_t*)offset);
+        // Call the imported print_int function
+        print_int(value);
+        // Accumulate the total
+        total += value;
     }
 
     return total;
