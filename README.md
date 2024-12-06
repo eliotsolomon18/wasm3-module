@@ -23,25 +23,31 @@ $ make
 ## Install
 
 ```
-$ sudo insmod wasm.ko
+$ sudo make install
 ```
 
-## Verify Install
+## Load WASM program
 
 ```
-$ sudo lsmod | grep wasm
+$ make -C wasm/ load
 ```
 
 ## Uninstall
 
 ```
-$ sudo rmmod wasm
+$ sudo make remove
 ```
 
 ## Check Output
 
 ```
 $ sudo journalctl --since "1 hour ago" | grep kernel
+```
+
+## Clean up
+
+```
+$ make clean
 ```
 
 ## Resources
@@ -53,3 +59,7 @@ $ sudo journalctl --since "1 hour ago" | grep kernel
 - https://surma.dev/things/c-to-webassembly/
 - https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/Memory
 - https://github.com/cisco-open/camblet-driver
+- https://www.kernel.org/doc/Documentation/locking/spinlocks.txt
+- https://olegkutkov.me/2018/03/14/simple-linux-character-device-driver/
+- https://unix.stackexchange.com/questions/724686/what-is-the-modern-way-of-creating-devices-files-in-dev
+- https://embetronicx.com/tutorials/linux/device-drivers/device-file-creation-for-character-drivers/

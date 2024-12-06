@@ -25,11 +25,20 @@ PWD := $(CURDIR)
 
 # Build the kernel module.
 all:
-	$(MAKE) -C wasm/
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules 
+
+# Install the kernel module.
+install: all
+	insmod wasm.ko
+
+# Remove the kernel module.
+remove:
+	rmmod wasm
 
 # Remove all files produced by the build process.
 clean:
 	$(MAKE) -C wasm/ clean
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 	rm -f wasm3-kernel/source/*.o wasm3-kernel/source/.*.cmd
+
+.PHONY: all clean install remove

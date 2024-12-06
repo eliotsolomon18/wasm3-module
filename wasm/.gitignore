@@ -1,2 +1,2 @@
+wasm-load
 *.wasm
-*.wasm.c

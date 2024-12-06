@@ -1,28 +1,23 @@
-# Compiler and flags
-CC = clang-18
-CFLAGS = -target wasm32 -nostdlib
-LDFLAGS = -Wl,--no-entry -Wl,--export-all
-
-# Files
-SRC = prog.c
-WASM = prog.wasm
-WASM_C = $(WASM).c
+CC = cc
+CLANG = clang-18
 
 # Default target
-all: $(WASM_C)
+all: wasm-load prog.wasm
 
-# Compile WebAssembly file
-$(WASM): $(SRC)
-	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@
+# Compile WASM bytecode
+prog.wasm: prog.c
+	$(CLANG) -target wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all $< -o $@
 
-# Generate C representation of the WebAssembly file
-$(WASM_C): $(WASM)
-	xxd -i $< > $@
-	sed -i -E 's/[a-z_]+\[\]/wasm_code[]/' $@
-	sed -i -E 's/[a-z_]+\s=/wasm_size =/' $@
+# Compile loader executable
+wasm-load: wasm-load.c
+	$(CC) $< -o $@
 
-# Clean up generated files
+# Load rule
+load: wasm-load prog.wasm
+	./wasm-load prog.wasm
+
+# Clean up compiled files
 clean:
-	rm -f $(WASM) $(WASM_C)
+	rm -f wasm-load prog.wasm
 
-.PHONY: all clean
+.PHONY: all load clean
