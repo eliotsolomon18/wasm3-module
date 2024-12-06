@@ -1,5 +1,9 @@
 #include <stdint.h>
 
+// Return values to drop and accept a packet, respectively.
+#define NF_DROP 0
+#define NF_ACCEPT 1
+
 // Convert between WASM pages and bytes
 #define PAGE_SIZE (64 * 1024)
 #define PAGES_TO_BYTES(p) (p * PAGE_SIZE)
@@ -53,4 +57,14 @@ sum(void)
 
     // Return the sum.
     return sum;
+}
+
+/*
+ * Called by the runtime to handle an incoming IPv4 packet.
+ */
+uint32_t
+filter(void)
+{
+    print_int(123);
+    return NF_ACCEPT;
 }

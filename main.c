@@ -1,5 +1,5 @@
 /*
- * main.c - Offer a character device which executes WASM bytecode.
+ * main.c - Offer a character device which executes WASM bytecode to filter IPv4 packets.
  */
 
 #include <linux/module.h>
@@ -11,6 +11,12 @@
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
+#include <linux/ip.h>
+#include <linux/netfilter.h>
+#include <linux/netfilter_ipv4.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#include <linux/tcp.h>
 
 #include "wasm3.h"
 #include "m3_env.h"
@@ -35,6 +41,9 @@ IM3Function alloc_func = NULL;
 // The sum function within the Wasm3 module
 IM3Function sum_func = NULL;
 
+// The filter function within the Wasm3 module
+IM3Function filter_func = NULL;
+
 // Device number
 static dev_t dev_num;
 
@@ -50,7 +59,7 @@ static struct cdev cdev;
 // Character device write handler
 static ssize_t cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off);
 
-// File operations structure
+// File operations
 static struct file_operations fops = {
     .owner = THIS_MODULE,
     .write = cdev_write,
@@ -61,6 +70,17 @@ char *wasm_code = NULL;
 
 // Size of WASM code buffer
 unsigned int wasm_size = 0;
+
+// Netfilter hook packet handler
+static unsigned int nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state);
+
+// Netfilter hook operations
+static struct nf_hook_ops nfho = {
+    .hook = nf_filter,
+    .hooknum = NF_INET_PRE_ROUTING,
+    .pf = NFPROTO_IPV4,
+    .priority = NF_IP_PRI_FIRST,
+};
 
 /*
  * Called by the WASM program to print an integer.
@@ -91,13 +111,15 @@ wasm_init(void)
     // Register the device class.
     if (IS_ERR(dev_class = class_create("wasm"))) {
         pr_err("Failed to register the character device class.\n");
+        m3_FreeEnvironment(env);
         return PTR_ERR(dev_class);
     }
 
     // Register a character device number.
     if (alloc_chrdev_region(&dev_num, 0, 1, "wasm") < 0) {
-        class_destroy(dev_class);
         pr_err("Failed to allocate a character device number.\n");
+        class_destroy(dev_class);
+        m3_FreeEnvironment(env);
         return dev_num;
     }
 
@@ -105,19 +127,32 @@ wasm_init(void)
     cdev_init(&cdev, &fops);
     int ret;
     if ((ret = cdev_add(&cdev, dev_num, 1)) < 0) {
+        pr_err("Failed to add the character device.\n");
         unregister_chrdev_region(dev_num, 1);
         class_destroy(dev_class);
-        pr_err("Failed to add the character device.\n");
+        m3_FreeEnvironment(env);
         return ret;
     }
 
     // Register the device node.
     if (IS_ERR(dev = device_create(dev_class, NULL, dev_num, NULL, "wasm"))) {
+        pr_err("Failed to create the character device.\n");
         cdev_del(&cdev);
         unregister_chrdev_region(dev_num, 1);
         class_destroy(dev_class);
-        pr_err("Failed to create the character device.\n");
+        m3_FreeEnvironment(env);
         return PTR_ERR(dev);
+    }
+
+    // Register the netfilter hook.
+    if ((ret = nf_register_net_hook(&init_net, &nfho)) < 0) {
+        pr_err("Failed to register the netfilter hook.\n");
+        device_destroy(dev_class, dev_num);
+        cdev_del(&cdev);
+        unregister_chrdev_region(dev_num, 1);
+        class_destroy(dev_class);
+        m3_FreeEnvironment(env);
+        return ret;
     }
 
     pr_info("Successfully loaded WASM module.\n");
@@ -125,7 +160,10 @@ wasm_init(void)
     return 0;
 }
 
-void
+/*
+ * A sample function that illustrates how to interact with the WASM runtime.
+ */
+static void
 test(void)
 {
     // Call the alloc() function.
@@ -167,6 +205,9 @@ test(void)
     pr_info("Function returned: %llu.\n", sum_val);
 }
 
+/*
+ * Handle a write to the character device.
+ */
 static ssize_t
 cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 {
@@ -176,6 +217,9 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
     // Free the current runtime if it exists.
     if (runtime != NULL) {
+        alloc_func = NULL;
+        sum_func = NULL;
+        filter_func = NULL;
         m3_FreeRuntime(runtime);
         runtime = NULL;
     }
@@ -195,9 +239,9 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
     // Copy the code from user space into the buffer.
     if (copy_from_user(wasm_code, buf, len) != 0) {
+        pr_err("Failed to copy data from user space.\n");
         kfree(wasm_code);
         wasm_code = NULL;
-        pr_err("Failed to copy data from user space.\n");
         return -EFAULT;
     }
     wasm_size = len;
@@ -233,7 +277,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         return -EINVAL;
     }
 
-    // Find the alloc() WASM function in the module.
+    // Find the alloc() WASM function in the module.`
     if ((result = m3_FindFunction(&alloc_func, runtime, "alloc")) != NULL) {
         pr_err("Error finding alloc() in module: %s.\n", result);
         m3_FreeRuntime(runtime);
@@ -243,10 +287,21 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     // Find the sum() WASM function in the module.
     if ((result = m3_FindFunction(&sum_func, runtime, "sum")) != NULL) {
         pr_err("Error finding sum() in module: %s.\n", result);
+        alloc_func = NULL;
         m3_FreeRuntime(runtime);
         return -EINVAL;
     }
 
+    // Find the filter() WASM function in the module.
+    if ((result = m3_FindFunction(&filter_func, runtime, "filter")) != NULL) {
+        pr_err("Error finding filter() in module: %s.\n", result);
+        alloc_func = NULL;
+        sum_func = NULL;
+        m3_FreeRuntime(runtime);
+        return -EINVAL;
+    }
+
+    // Invoke the sample code.
     test();
 
     // Release the runtime lock.
@@ -256,11 +311,54 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 }
 
 /*
+ * Handle an incoming IPv4 packet.
+ */
+static unsigned int
+nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
+{
+    // Do nothing if no filter function exists.
+    if (filter_func == NULL) {
+        return NF_ACCEPT;
+    }
+
+    // TODO: use multiple runtimes to avoid serializing packet processing
+
+    // Acquire the runtime lock.
+    unsigned long flags;
+    spin_lock_irqsave(&lock, flags);
+
+    // TODO: pass more information to filter()
+
+    // Call the filter() function.
+    M3Result result;
+    if ((result = m3_CallV(filter_func)) != NULL) {
+        pr_err("Error calling filter(): %s.\n", result);
+        return NF_ACCEPT;
+    }
+
+    // Fetch the filter() return value.
+    uint32_t filter_val = 0;
+    if ((result = m3_GetResultsV(filter_func, &filter_val)) != NULL) {
+        pr_err("Error getting results from filter(): %s.\n", result);
+        return NF_ACCEPT;
+    }
+
+    // Release the runtime lock.
+    spin_unlock_irqrestore(&lock, flags);
+
+    // The return value specified what should be done with the packet.
+    return filter_val;
+}
+
+/*
  * Called when the kernel module is unloaded.
  */
 static void __exit
 wasm_cleanup(void)
 {
+    // Unregister the netfilter hook.
+    nf_unregister_net_hook(&init_net, &nfho);
+
     // Free the Wasm3 runtime if it exists.
     if (runtime != NULL) {
         m3_FreeRuntime(runtime);

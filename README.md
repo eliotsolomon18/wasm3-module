@@ -1,6 +1,6 @@
 # Wasm3 Kernel Module
 
-This repository contains a kernel module that runs a small WASM program in kernel space. It illustrates how to expose functions from the kernel module to the WASM program as well as how to pass a variable-length data structure from the module to the program.
+This repository contains a kernel module that runs a small WASM program in kernel space. It illustrates how to expose functions from the kernel module to the WASM program as well as how to pass a variable-length data structure from the module to the program. It also hooks into `netfilter` to invoke the WASM program in response to every IPv4 packet.
 
 ## Structure
 
@@ -12,7 +12,7 @@ This repository contains a kernel module that runs a small WASM program in kerne
     - This is a submodule that points to a [fork](https://github.com/eliotsolomon18/wasm3-kernel) of the `wasm3` repository that has been modified to run in kernel space.
     - All the heavy lifting was done by [this fork](https://github.com/bonifaido/wasm3/tree/linux-kernel), but I merged in the latest changes from the [upstream repository](https://github.com/wasm3/wasm3).
 - `wasm/`
-    - This directory contains the WASM program as well as a `Makefile` to compile it and convert its binary form to a C array suitable for inclusion in the kernel module.
+    - This directory contains the WASM program as well as a program that can be used to load it into the kernel. A `Makefile` is provided to automate the process of building and loading the program.
 
 ## Build
 
