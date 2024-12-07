@@ -34,6 +34,21 @@ filter(void)
 }
 """
 
+test_tcp_passthrough_23557 = """
+#include <stdint.h>
+
+#include "prog.h"
+
+/*
+ * Let 23557 traffic pass through
+ */
+uint32_t
+filter(void)
+{
+    return header->dst_pt == 23557 || header->src_pt == 23557 ? ACCEPT : DROP;
+}
+"""
+
 class Result(Enum):
     SUCCESS = 0
     TIMEOUT = 1
@@ -109,6 +124,7 @@ if __name__ == "__main__":
     test_programs = [
         ("test_dummy", test_dummy, Result.SUCCESS, Result.SUCCESS),
         ("test_tcp_block_23557", test_tcp_block_23557, Result.TIMEOUT, Result.TIMEOUT),
+        ("test_tcp_passthrough_23557", test_tcp_passthrough_23557, Result.SUCCESS, Result.SUCCESS),
         # What other tests should we run?
     ]
 
