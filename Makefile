@@ -48,4 +48,4 @@ clean:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 	rm -f wasm3-kernel/source/*.o wasm3-kernel/source/.*.cmd
 
-.PHONY: all clean install remove load
+.PHONY: all clean install remove load test

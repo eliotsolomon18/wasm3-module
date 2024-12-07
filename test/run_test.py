@@ -14,7 +14,7 @@ test_tcp_block_80= '''
 uint32_t
 filter(void)
 {
-    return header->prot == TCP && header->dst_pt == 80 ? DROP : ACCEPT;
+    return header->prot == TCP && header->dst_pt == 23557 ? DROP : ACCEPT;
 }
 '''
 
@@ -46,13 +46,14 @@ def start_client():
     client_socket.close()
 
 if __name__ == "__main__":
-    subprocess.run(["bash", "-c", "./test_setup.sh"], check=True)
+
+    with open("wasm/prog-test.c", "w") as f:
+        f.write(test_tcp_block_80) 
+
+    subprocess.run(["bash", "-c", "test/test_setup.sh"], check=True)
 
     server_process = Process(target=start_server)
     client_process = Process(target=start_client)
-
-    with open("../wasm/prog-test.c", "w") as f:
-        f.write(test_tcp_block_80) 
 
     server_process.start()
     client_process.start()
@@ -60,4 +61,4 @@ if __name__ == "__main__":
     client_process.join()
     server_process.terminate()
 
-    subprocess.run(["rm", "../wasm/prog-test.c"], check=True)
+    subprocess.run(["bash", "-c", "test/test_cleanup.sh"], check=True)

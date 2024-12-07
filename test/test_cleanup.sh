@@ -1,3 +1,5 @@
 make remove
 echo "make remove done"
-sleep(1)
+
+rm wasm/prog-test.c
+sleep 1
