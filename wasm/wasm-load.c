@@ -53,7 +53,7 @@ main(int argc, char *argv[])
     // Close the file.
     close(file_fd);
 
-    // Open the character device for writing
+    // Open the character device for writing.
     int dev_fd = open(DEVICE_PATH, O_WRONLY);
     if (dev_fd < 0) {
         perror("open");
@@ -61,7 +61,7 @@ main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    // Write the file contents to the device
+    // Write the file contents to the device.
     if (write(dev_fd, buffer, file_size) != file_size) {
         perror("write");
         free(buffer);
