@@ -205,6 +205,9 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     // Initialize the Wasm3 runtime.
     if ((runtime = m3_NewRuntime(env, WASM_STACK_SIZE, NULL)) == NULL) {
         pr_err("Failed to create Wasm3 runtime.\n");
+        kfree(wasm_code);
+        wasm_code = NULL;
+        wasm_size = 0;
         spin_unlock_irqrestore(&lock, flags);
         return -ENOMEM;
     }
@@ -215,6 +218,9 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         pr_err("Failed to parse module: %s.\n", result);
         m3_FreeRuntime(runtime);
         runtime = NULL;
+        kfree(wasm_code);
+        wasm_code = NULL;
+        wasm_size = 0;
         spin_unlock_irqrestore(&lock, flags);
         return -EINVAL;
     }
@@ -224,6 +230,9 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         pr_err("Failed to load module: %s.\n", result);
         m3_FreeRuntime(runtime);
         runtime = NULL;
+        kfree(wasm_code);
+        wasm_code = NULL;
+        wasm_size = 0;
         spin_unlock_irqrestore(&lock, flags);
         return -ENOMEM;
     }
@@ -237,6 +246,10 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     if ((result = m3_FindFunction(&alloc_func, runtime, "alloc")) != NULL) {
         pr_err("Error finding alloc() in module: %s.\n", result);
         m3_FreeRuntime(runtime);
+        runtime = NULL;
+        kfree(wasm_code);
+        wasm_code = NULL;
+        wasm_size = 0;
         spin_unlock_irqrestore(&lock, flags);
         return -EINVAL;
     }
@@ -246,6 +259,10 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         pr_err("Error finding filter() in module: %s.\n", result);
         alloc_func = NULL;
         m3_FreeRuntime(runtime);
+        runtime = NULL;
+        kfree(wasm_code);
+        wasm_code = NULL;
+        wasm_size = 0;
         spin_unlock_irqrestore(&lock, flags);
         return -EINVAL;
     }
@@ -256,6 +273,10 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         alloc_func = NULL;
         filter_func = NULL;
         m3_FreeRuntime(runtime);
+        runtime = NULL;
+        kfree(wasm_code);
+        wasm_code = NULL;
+        wasm_size = 0;
         spin_unlock_irqrestore(&lock, flags);
         return -EINVAL;
     }
@@ -267,6 +288,10 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         alloc_func = NULL;
         filter_func = NULL;
         m3_FreeRuntime(runtime);
+        runtime = NULL;
+        kfree(wasm_code);
+        wasm_code = NULL;
+        wasm_size = 0;
         spin_unlock_irqrestore(&lock, flags);
         return -EINVAL;
     }
