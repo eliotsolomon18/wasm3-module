@@ -354,15 +354,16 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     // Disable preemption and get the ID of the current CPU.
     int cpu = get_cpu();
 
-    // Do nothing if no filter function exists.
-    if (runtimes[cpu].filter_func == NULL) {
+    // Acquire the runtime lock.
+    unsigned long runtime_flags;
+    spin_lock_irqsave(&runtimes[cpu].lock, runtime_flags);
+
+    // Do nothing if no runtime exists.
+    if (runtimes[cpu].runtime == NULL) {
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;
     }
-
-    // Acquire the runtime lock.
-    unsigned long flags;
-    spin_lock_irqsave(&runtimes[cpu].lock, flags);
 
     // Copy a portion of the packet headers into the runtime's memory.
     struct iphdr *ip_h = (struct iphdr *)skb_network_header(skb);
@@ -383,7 +384,7 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
             runtimes[cpu].header->dst_pt = ntohs(udp_h->dest);
             break;
         default:
-            spin_unlock_irqrestore(&runtimes[cpu].lock, flags);
+            spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
             put_cpu();
             return NF_ACCEPT;
     }
@@ -392,7 +393,7 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     M3Result result;
     if ((result = m3_CallV(runtimes[cpu].filter_func)) != NULL) {
         pr_err("Error calling filter(): %s.\n", result);
-        spin_unlock_irqrestore(&runtimes[cpu].lock, flags);
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;
     }
@@ -401,13 +402,13 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     uint32_t filter_val = 0;
     if ((result = m3_GetResultsV(runtimes[cpu].filter_func, &filter_val)) != NULL) {
         pr_err("Error getting results from filter(): %s.\n", result);
-        spin_unlock_irqrestore(&runtimes[cpu].lock, flags);
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;
     }
 
     // Release the runtime lock.
-    spin_unlock_irqrestore(&runtimes[cpu].lock, flags);
+    spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
 
     // Enable preemption.
     put_cpu();
@@ -431,11 +432,15 @@ wasm_cleanup(void)
     // Unregister the netfilter hook.
     nf_unregister_net_hook(&init_net, &nfho);
 
+    // Acquire the reconfiguration lock.
+    unsigned long reconf_flags;
+    spin_lock_irqsave(&reconf_lock, reconf_flags);
+
     // Free all of the Wasm3 runtimes.
     for (int cpu = 0; cpu < nr_cpu_ids; cpu++) {
         // Acquire the runtime lock.
-        unsigned long flags;
-        spin_lock_irqsave(&runtimes[cpu].lock, flags);
+        unsigned long runtime_flags;
+        spin_lock_irqsave(&runtimes[cpu].lock, runtime_flags);
 
         // Free the runtime if it exists.
         if (runtimes[cpu].runtime != NULL) {
@@ -454,7 +459,7 @@ wasm_cleanup(void)
         }
         
         // Release the runtime lock.
-        spin_unlock_irqrestore(&runtimes[cpu].lock, flags);
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
     }
 
     // Free the code buffer if it exists.
@@ -462,6 +467,9 @@ wasm_cleanup(void)
         kfree(wasm_code);
         wasm_size = 0;
     }
+
+    // Release the reconfiguration lock.
+    spin_unlock_irqrestore(&reconf_lock, reconf_flags);
 
     pr_info("Successfully unloaded WASM module.\n");
 }
