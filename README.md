@@ -29,7 +29,7 @@ $ sudo make install
 ## Load WASM program
 
 ```
-$ make -C wasm/ load
+$ sudo make load
 ```
 
 ## Uninstall
