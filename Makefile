@@ -26,6 +26,7 @@ PWD := $(CURDIR)
 # Build the kernel module.
 all:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules 
+	$(MAKE) -C wasm/
 
 # Install the kernel module.
 install: all
