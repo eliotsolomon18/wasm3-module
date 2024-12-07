@@ -25,7 +25,7 @@
 
 // A runtime and its associated metadata
 struct wasm_runtime {
-    spinlock_t lock; // The Wasm3 runtime lock
+    spinlock_t lock; // The runtime lock
     IM3Runtime runtime; // The Wasm3 runtime
     IM3Module module; // The Wasm3 module
     IM3Function alloc_func; // The allocation function within the Wasm3 module
@@ -39,40 +39,40 @@ IM3Environment env = NULL;
 // The reconfiguration lock
 DEFINE_SPINLOCK(reconf_lock);
 
-// WASM code buffer
+// The WASM code buffer
 char *wasm_code = NULL;
 
-// Size of WASM code buffer
+// The size of the WASM code buffer
 unsigned int wasm_size = 0;
 
 // A pointer to the array of Wasm3 runtimes
 struct wasm_runtime *runtimes;
 
-// Device number
+// The device number
 static dev_t dev_num;
 
-// Device class
+// The device class
 static struct class *dev_class;
 
-// Device
+// The device
 static struct device *dev;
 
-// Character device
+// The character device
 static struct cdev cdev;
 
-// Character device write handler
+// The character device write handler
 static ssize_t cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off);
 
-// File operations
+// The character device's file operations
 static struct file_operations fops = {
     .owner = THIS_MODULE,
     .write = cdev_write,
 };
 
-// Netfilter hook packet handler
+// The netfilter hook packet handler
 static unsigned int nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state);
 
-// Netfilter hook operations
+// The netfilter hook's operations
 static struct nf_hook_ops nfho = {
     .hook = nf_filter,
     .hooknum = NF_INET_PRE_ROUTING,
@@ -190,7 +190,7 @@ reconfigure_abort(int fail_cpu, char *new_wasm_code, struct wasm_runtime *new_ru
 }
 
 /*
- * Handle a write to the character device.
+ * Handle a write to the character device (i.e., a reconfiguration attempt).
  */
 static ssize_t
 cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
