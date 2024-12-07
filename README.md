@@ -59,9 +59,12 @@ $ make clean
 - https://surma.dev/things/c-to-webassembly/
 - https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/Memory
 - https://github.com/cisco-open/camblet-driver
-- https://www.kernel.org/doc/Documentation/locking/spinlocks.txt
+- https://docs.kernel.org/locking/spinlocks.html
 - https://olegkutkov.me/2018/03/14/simple-linux-character-device-driver/
 - https://unix.stackexchange.com/questions/724686/what-is-the-modern-way-of-creating-devices-files-in-dev
 - https://embetronicx.com/tutorials/linux/device-drivers/device-file-creation-for-character-drivers/
 - https://kel.bz/post/netfilter/
 - https://wiki.linuxfoundation.org/networking/sk_buff
+- https://utcc.utoronto.ca/~cks/space/blog/linux/CPUNumbersNotContiguous
+- https://lwn.net/Articles/2220/
+- https://stackoverflow.com/questions/57983653/nr-cpu-ids-vs-nr-cpus-in-linux-kernel
