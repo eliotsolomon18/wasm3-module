@@ -4,22 +4,22 @@
 
 #include <linux/module.h>
 #include <linux/printk.h>
-#include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
-#include <linux/ip.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
+#include <linux/ip.h>
 #include <linux/tcp.h>
+#include <linux/udp.h>
 
 #include "wasm3.h"
 #include "m3_env.h"
+
+#include "packet.h"
 
 #define WASM_STACK_SIZE (64 * 1024) // 64 KB stack
 
@@ -38,11 +38,11 @@ IM3Module module = NULL;
 // The allocation function within the Wasm3 module
 IM3Function alloc_func = NULL;
 
-// The sum function within the Wasm3 module
-IM3Function sum_func = NULL;
-
 // The filter function within the Wasm3 module
 IM3Function filter_func = NULL;
+
+// Pointer to packer header on WASM runtime's heap
+struct packet_header *header;
 
 // Device number
 static dev_t dev_num;
@@ -161,51 +161,6 @@ wasm_init(void)
 }
 
 /*
- * A sample function that illustrates how to interact with the WASM runtime.
- */
-static void
-test(void)
-{
-    // Call the alloc() function.
-    M3Result result;
-    if ((result = m3_CallV(alloc_func, 10 * sizeof(int32_t))) != NULL) {
-        pr_err("Error calling alloc(): %s.\n", result);
-        return;
-    }
-
-    // Fetch the alloc() return value.
-    uint64_t alloc_val = 0;
-    if ((result = m3_GetResultsV(alloc_func, &alloc_val)) != NULL) {
-        pr_err("Error getting results from alloc(): %s.\n", result);
-        return;
-    }
-
-    // Compute a pointer to the allocated region.
-    int32_t *data = (int32_t *)(m3_GetMemory(runtime, NULL, 0) + alloc_val);
-
-    // Fill the allocated array with values.
-    for (int i = 0; i < 10; i++) {
-        data[i] = i;
-    }
-
-    // Call the sum() function.
-    if ((result = m3_CallV(sum_func)) != NULL) {
-        pr_err("Error calling sum(): %s.\n", result);
-        return;
-    }
-
-    // Fetch the sum() return value.
-    uint64_t sum_val = 0;
-    if ((result = m3_GetResultsV(sum_func, &sum_val)) != NULL) {
-        pr_err("Error getting results from sum(): %s.\n", result);
-        return;
-    }
-
-    // Print the sum() return value.
-    pr_info("Function returned: %llu.\n", sum_val);
-}
-
-/*
  * Handle a write to the character device.
  */
 static ssize_t
@@ -218,7 +173,6 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     // Free the current runtime if it exists.
     if (runtime != NULL) {
         alloc_func = NULL;
-        sum_func = NULL;
         filter_func = NULL;
         m3_FreeRuntime(runtime);
         runtime = NULL;
@@ -234,6 +188,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     // Allocate a new code buffer.
     if ((wasm_code = kmalloc(len, GFP_KERNEL)) == NULL) {
         pr_err("Failed to allocate buffer of length %zu bytes.\n", len);
+        spin_unlock_irqrestore(&lock, flags);
         return -ENOMEM;
     }
 
@@ -242,6 +197,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         pr_err("Failed to copy data from user space.\n");
         kfree(wasm_code);
         wasm_code = NULL;
+        spin_unlock_irqrestore(&lock, flags);
         return -EFAULT;
     }
     wasm_size = len;
@@ -249,6 +205,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     // Initialize the Wasm3 runtime.
     if ((runtime = m3_NewRuntime(env, WASM_STACK_SIZE, NULL)) == NULL) {
         pr_err("Failed to create Wasm3 runtime.\n");
+        spin_unlock_irqrestore(&lock, flags);
         return -ENOMEM;
     }
 
@@ -258,6 +215,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         pr_err("Failed to parse module: %s.\n", result);
         m3_FreeRuntime(runtime);
         runtime = NULL;
+        spin_unlock_irqrestore(&lock, flags);
         return -EINVAL;
     }
 
@@ -266,29 +224,20 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         pr_err("Failed to load module: %s.\n", result);
         m3_FreeRuntime(runtime);
         runtime = NULL;
+        spin_unlock_irqrestore(&lock, flags);
         return -ENOMEM;
     }
 
     // Link the print_int() function to the module.
     if ((result = m3_LinkRawFunction(module, "custom", "print_int", "i(i)", &print_int)) != NULL) {
         pr_err("Failed to link print_int() to module: %s.\n", result);
-        m3_FreeRuntime(runtime);
-        runtime = NULL;
-        return -EINVAL;
     }
 
     // Find the alloc() WASM function in the module.`
     if ((result = m3_FindFunction(&alloc_func, runtime, "alloc")) != NULL) {
         pr_err("Error finding alloc() in module: %s.\n", result);
         m3_FreeRuntime(runtime);
-        return -EINVAL;
-    }
-
-    // Find the sum() WASM function in the module.
-    if ((result = m3_FindFunction(&sum_func, runtime, "sum")) != NULL) {
-        pr_err("Error finding sum() in module: %s.\n", result);
-        alloc_func = NULL;
-        m3_FreeRuntime(runtime);
+        spin_unlock_irqrestore(&lock, flags);
         return -EINVAL;
     }
 
@@ -296,13 +245,34 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     if ((result = m3_FindFunction(&filter_func, runtime, "filter")) != NULL) {
         pr_err("Error finding filter() in module: %s.\n", result);
         alloc_func = NULL;
-        sum_func = NULL;
         m3_FreeRuntime(runtime);
+        spin_unlock_irqrestore(&lock, flags);
         return -EINVAL;
     }
 
-    // Invoke the sample code.
-    test();
+    // Call the alloc() function.
+    if ((result = m3_CallV(alloc_func, sizeof(struct packet_header))) != NULL) {
+        pr_err("Error calling alloc(): %s.\n", result);
+        alloc_func = NULL;
+        filter_func = NULL;
+        m3_FreeRuntime(runtime);
+        spin_unlock_irqrestore(&lock, flags);
+        return -EINVAL;
+    }
+
+    // Fetch the alloc() return value.
+    uint64_t alloc_val = 0;
+    if ((result = m3_GetResultsV(alloc_func, &alloc_val)) != NULL) {
+        pr_err("Error getting results from alloc(): %s.\n", result);
+        alloc_func = NULL;
+        filter_func = NULL;
+        m3_FreeRuntime(runtime);
+        spin_unlock_irqrestore(&lock, flags);
+        return -EINVAL;
+    }
+
+    // Compute a pointer to the allocated region.
+    header = (struct packet_header *)(m3_GetMemory(runtime, NULL, 0) + alloc_val);
 
     // Release the runtime lock.
     spin_unlock_irqrestore(&lock, flags);
@@ -327,12 +297,34 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     unsigned long flags;
     spin_lock_irqsave(&lock, flags);
 
-    // TODO: pass more information to filter()
+    // Copy a portion of the packet headers into the runtime's memory.
+    struct iphdr *ip_h = (struct iphdr *)skb_network_header(skb);
+    header->src_ip = ntohl(ip_h->saddr);
+    header->dst_ip = ntohl(ip_h->daddr);
+    header->len = ntohs(ip_h->tot_len);
+    switch (ip_h->protocol) {
+        case IPPROTO_TCP:
+            header->prot = TCP;
+            struct tcphdr *tcp_h = tcp_hdr(skb);
+            header->src_pt = ntohs(tcp_h->source);
+            header->dst_pt = ntohs(tcp_h->dest);
+            break;
+        case IPPROTO_UDP:
+            header->prot = UDP;
+            struct udphdr *udp_h = udp_hdr(skb);
+            header->src_pt = ntohs(udp_h->source);
+            header->dst_pt = ntohs(udp_h->dest);
+            break;
+        default:
+            spin_unlock_irqrestore(&lock, flags);
+            return NF_ACCEPT;
+    }
 
     // Call the filter() function.
     M3Result result;
     if ((result = m3_CallV(filter_func)) != NULL) {
         pr_err("Error calling filter(): %s.\n", result);
+        spin_unlock_irqrestore(&lock, flags);
         return NF_ACCEPT;
     }
 
@@ -340,6 +332,7 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     uint32_t filter_val = 0;
     if ((result = m3_GetResultsV(filter_func, &filter_val)) != NULL) {
         pr_err("Error getting results from filter(): %s.\n", result);
+        spin_unlock_irqrestore(&lock, flags);
         return NF_ACCEPT;
     }
 
