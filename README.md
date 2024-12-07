@@ -26,6 +26,11 @@ $ make
 $ sudo make install
 ```
 
+## (Optional) Test the module
+```
+$ python3 test/run_test.py
+```
+
 ## Load WASM program
 
 ```
