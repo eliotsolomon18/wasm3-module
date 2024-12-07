@@ -89,7 +89,7 @@ m3ApiRawFunction(print_int)
     m3ApiReturnType(int32_t);
     m3ApiGetArg(int32_t, i);
 
-    pr_info("From WASM: %i\n", i);
+    pr_info("From WASM: %i. [%i]\n", i, smp_processor_id());
 
     m3ApiReturn(0);
 }
@@ -100,13 +100,13 @@ m3ApiRawFunction(print_int)
 static int __init
 wasm_init(void)
 {
-    // Initialize the Wasm3 environment.
+    // Initialize the environment.
     if ((env = m3_NewEnvironment()) == NULL) {
-        pr_err("Failed to create Wasm3 environment.\n");
+        pr_err("Failed to create environment.\n");
         return -1;
     }
 
-    // Allocate the array of Wasm3 runtimes.
+    // Allocate the array of runtimes.
     if ((runtimes = kcalloc(nr_cpu_ids, sizeof(struct wasm_runtime), GFP_KERNEL)) == NULL) {
         pr_err("Failed to allocate runtime array.\n");
         return -1;
@@ -228,7 +228,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     for (int cpu = 0; cpu < nr_cpu_ids; cpu++) {
         // Initialize the Wasm3 runtime.
         if ((new_runtimes[cpu].runtime = m3_NewRuntime(env, WASM_STACK_SIZE, NULL)) == NULL) {
-            pr_err("Failed to create new runtime.\n");
+            pr_err("Failed to create new runtime. [%i]\n", cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -ENOMEM;
@@ -237,7 +237,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         // Parse the WASM module.
         M3Result result;
         if ((result = m3_ParseModule(env, &new_runtimes[cpu].module, new_wasm_code, len)) != NULL) {
-            pr_err("Failed to parse module: %s.\n", result);
+            pr_err("Failed to parse module: %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -EINVAL;
@@ -245,7 +245,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
         // Load the WASM module.
         if ((result = m3_LoadModule(new_runtimes[cpu].runtime, new_runtimes[cpu].module)) != NULL) {
-            pr_err("Failed to load module: %s.\n", result);
+            pr_err("Failed to load module: %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -ENOMEM;
@@ -253,12 +253,12 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
         // Link the print_int() function to the module.
         if ((result = m3_LinkRawFunction(new_runtimes[cpu].module, "custom", "print_int", "i(i)", &print_int)) != NULL) {
-            pr_err("Failed to link print_int() to module: %s.\n", result);
+            pr_err("Failed to link print_int() to module: %s. [%i]\n", result, cpu);
         }
 
         // Find the alloc() WASM function in the module.`
         if ((result = m3_FindFunction(&new_runtimes[cpu].alloc_func, new_runtimes[cpu].runtime, "alloc")) != NULL) {
-            pr_err("Error finding alloc() in module: %s.\n", result);
+            pr_err("Error finding alloc() in module: %s.\n [%i]", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -EINVAL;
@@ -266,7 +266,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
         // Find the filter() WASM function in the module.
         if ((result = m3_FindFunction(&new_runtimes[cpu].filter_func, new_runtimes[cpu].runtime, "filter")) != NULL) {
-            pr_err("Error finding filter() in module: %s.\n", result);
+            pr_err("Error finding filter() in module: %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -EINVAL;
@@ -274,7 +274,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
         // Call the alloc() function.
         if ((result = m3_CallV(new_runtimes[cpu].alloc_func, sizeof(struct packet_header))) != NULL) {
-            pr_err("Error calling alloc(): %s.\n", result);
+            pr_err("Error calling alloc(): %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -EINVAL;
@@ -283,7 +283,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         // Fetch the alloc() return value.
         uint64_t alloc_val = 0;
         if ((result = m3_GetResultsV(new_runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
-            pr_err("Error getting results from alloc(): %s.\n", result);
+            pr_err("Error getting results from alloc(): %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -EINVAL;
