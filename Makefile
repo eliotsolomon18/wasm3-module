@@ -39,6 +39,9 @@ remove:
 load:
 	$(MAKE) -C wasm/ load
 
+test:
+	$(MAKE) -C wasm/ test
+
 # Remove all files produced by the build process.
 clean:
 	$(MAKE) -C wasm/ clean

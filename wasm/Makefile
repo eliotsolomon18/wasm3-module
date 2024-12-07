@@ -8,6 +8,9 @@ all: wasm-load prog.wasm
 prog.wasm: prog.c
 	$(CLANG) -target wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all $< -o $@
 
+prog-test.wasm: prog-test.c
+	$(CLANG) -target wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all $< -o $@
+
 # Compile loader executable
 wasm-load: wasm-load.c
 	$(CC) $< -o $@
@@ -15,6 +18,9 @@ wasm-load: wasm-load.c
 # Load rule
 load: wasm-load prog.wasm
 	./wasm-load prog.wasm
+
+test:
+	./wasm-load prog-test.wasm
 
 # Clean up compiled files
 clean:
