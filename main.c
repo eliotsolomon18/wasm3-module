@@ -10,6 +10,7 @@
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
+#include <linux/cpumask.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/ip.h>
@@ -26,15 +27,13 @@
 // A runtime and its associated metadata
 struct wasm_runtime {
     spinlock_t lock; // The runtime lock
+    IM3Environment env; // The Wasm3 environment
     IM3Runtime runtime; // The Wasm3 runtime
     IM3Module module; // The Wasm3 module
     IM3Function alloc_func; // The allocation function within the Wasm3 module
     IM3Function filter_func; // The filter function within the Wasm3 module
     struct packet_header *header; // A pointer to the packer header on WASM runtime's heap
 };
-
-// The Wasm3 environment shared by all runtimes
-IM3Environment env = NULL;
 
 // The reconfiguration lock
 DEFINE_SPINLOCK(reconf_lock);
@@ -100,12 +99,6 @@ m3ApiRawFunction(print_int)
 static int __init
 wasm_init(void)
 {
-    // Initialize the environment.
-    if ((env = m3_NewEnvironment()) == NULL) {
-        pr_err("Failed to create environment.\n");
-        return -1;
-    }
-
     // Allocate the array of runtimes.
     if ((runtimes = kcalloc(nr_cpu_ids, sizeof(struct wasm_runtime), GFP_KERNEL)) == NULL) {
         pr_err("Failed to allocate runtime array.\n");
@@ -120,7 +113,7 @@ wasm_init(void)
     // Register the device class.
     if (IS_ERR(dev_class = class_create("wasm"))) {
         pr_err("Failed to register the character device class.\n");
-        m3_FreeEnvironment(env);
+        kfree(runtimes);
         return PTR_ERR(dev_class);
     }
 
@@ -128,7 +121,7 @@ wasm_init(void)
     if (alloc_chrdev_region(&dev_num, 0, 1, "wasm") < 0) {
         pr_err("Failed to allocate a character device number.\n");
         class_destroy(dev_class);
-        m3_FreeEnvironment(env);
+        kfree(runtimes);
         return dev_num;
     }
 
@@ -139,7 +132,7 @@ wasm_init(void)
         pr_err("Failed to add the character device.\n");
         unregister_chrdev_region(dev_num, 1);
         class_destroy(dev_class);
-        m3_FreeEnvironment(env);
+        kfree(runtimes);
         return ret;
     }
 
@@ -149,7 +142,7 @@ wasm_init(void)
         cdev_del(&cdev);
         unregister_chrdev_region(dev_num, 1);
         class_destroy(dev_class);
-        m3_FreeEnvironment(env);
+        kfree(runtimes);
         return PTR_ERR(dev);
     }
 
@@ -160,7 +153,7 @@ wasm_init(void)
         cdev_del(&cdev);
         unregister_chrdev_region(dev_num, 1);
         class_destroy(dev_class);
-        m3_FreeEnvironment(env);
+        kfree(runtimes);
         return ret;
     }
 
@@ -175,10 +168,13 @@ wasm_init(void)
 static void
 reconfigure_abort(int fail_cpu, char *new_wasm_code, struct wasm_runtime *new_runtimes)
 {
-    // Free every new runtime that has been created up to this point.
+    // Free every new runtime and environment that has been created up to this point.
     for (int cpu = 0; cpu <= fail_cpu; cpu++) {
         if (new_runtimes[cpu].runtime != NULL) {
             m3_FreeRuntime(new_runtimes[cpu].runtime);
+        }
+        if (new_runtimes[cpu].env != NULL) {
+            m3_FreeEnvironment(new_runtimes[cpu].env);
         }
     }
 
@@ -226,8 +222,16 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
     // Set up all of the new runtimes.
     for (int cpu = 0; cpu < nr_cpu_ids; cpu++) {
-        // Initialize the Wasm3 runtime.
-        if ((new_runtimes[cpu].runtime = m3_NewRuntime(env, WASM_STACK_SIZE, NULL)) == NULL) {
+        // Initialize the environment.
+        if ((new_runtimes[cpu].env = m3_NewEnvironment()) == NULL) {
+            pr_err("Failed to create environment. [%i]\n", cpu);
+            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+            return -ENOMEM;
+        }
+
+        // Initialize the runtime.
+        if ((new_runtimes[cpu].runtime = m3_NewRuntime(new_runtimes[cpu].env, WASM_STACK_SIZE, NULL)) == NULL) {
             pr_err("Failed to create new runtime. [%i]\n", cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
@@ -236,7 +240,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
         // Parse the WASM module.
         M3Result result;
-        if ((result = m3_ParseModule(env, &new_runtimes[cpu].module, new_wasm_code, len)) != NULL) {
+        if ((result = m3_ParseModule(new_runtimes[cpu].env, &new_runtimes[cpu].module, new_wasm_code, len)) != NULL) {
             pr_err("Failed to parse module: %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
@@ -304,7 +308,13 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
             m3_FreeRuntime(runtimes[cpu].runtime);
         }
 
+        // Free the current environment if it exists.
+        if (runtimes[cpu].env != NULL) {
+            m3_FreeEnvironment(runtimes[cpu].env);
+        }
+
         // Copy the new pointers into the actual runtime array.
+        runtimes[cpu].env = new_runtimes[cpu].env;
         runtimes[cpu].runtime = new_runtimes[cpu].runtime;
         runtimes[cpu].module = new_runtimes[cpu].module;
         runtimes[cpu].alloc_func = new_runtimes[cpu].alloc_func;
@@ -402,7 +412,7 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     // Enable preemption.
     put_cpu();
 
-    // The return value specified what should be done with the packet.
+    // The return value specifies what should be done with the packet.
     return filter_val;
 }
 
@@ -430,10 +440,17 @@ wasm_cleanup(void)
         // Free the runtime if it exists.
         if (runtimes[cpu].runtime != NULL) {
             m3_FreeRuntime(runtimes[cpu].runtime);
+            runtimes[cpu].runtime = NULL;
             runtimes[cpu].module = NULL;
             runtimes[cpu].alloc_func = NULL;
             runtimes[cpu].filter_func = NULL;
             runtimes[cpu].header = NULL;
+        }
+
+        // Free the environment if it exists.
+        if (runtimes[cpu].env != NULL) {
+            m3_FreeEnvironment(runtimes[cpu].env);
+            runtimes[cpu].env = NULL;
         }
         
         // Release the runtime lock.
@@ -445,9 +462,6 @@ wasm_cleanup(void)
         kfree(wasm_code);
         wasm_size = 0;
     }
-
-    // Free the Wasm3 environment.
-    m3_FreeEnvironment(env);
 
     pr_info("Successfully unloaded WASM module.\n");
 }
