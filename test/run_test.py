@@ -1,9 +1,9 @@
-from multiprocessing import Process
 import subprocess
 import socket
 import time
+from multiprocessing import Process
 
-test_tcp_block_80= '''
+test_tcp_block_80 = """
 #include <stdint.h>
 
 #include "prog.h"
@@ -16,7 +16,7 @@ filter(void)
 {
     return header->prot == TCP && header->dst_pt == 23557 ? DROP : ACCEPT;
 }
-'''
+"""
 
 def start_server():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -37,18 +37,22 @@ def start_server():
 def start_client():
     time.sleep(2)  # Wait for the server to start
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect(('127.0.0.1', 23557))
-    for i in range(5):
-        message = f"Message {i}"
-        client_socket.sendall(message.encode())
-        data = client_socket.recv(1024)
-        print(f"Received from server: {data.decode()}")
-    client_socket.close()
+    client_socket.settimeout(5)  # Set a 5-second timeout
+    try:
+        client_socket.connect(('127.0.0.1', 23557))
+        for i in range(5):
+            message = f"Message {i}"
+            client_socket.sendall(message.encode())
+            data = client_socket.recv(1024)
+            print(f"Received from server: {data.decode()}")
+    except socket.timeout:
+        print("Client connection timed out")
+    finally:
+        client_socket.close()
 
-if __name__ == "__main__":
-
+def run_test(test_program):
     with open("wasm/prog-test.c", "w") as f:
-        f.write(test_tcp_block_80) 
+        f.write(test_program)
 
     subprocess.run(["bash", "-c", "test/test_setup.sh"], check=True)
 
@@ -62,3 +66,12 @@ if __name__ == "__main__":
     server_process.terminate()
 
     subprocess.run(["bash", "-c", "test/test_cleanup.sh"], check=True)
+
+if __name__ == "__main__":
+    test_programs = [
+        test_tcp_block_80,
+        # What other tests should we run?
+    ]
+
+    for test_program in test_programs:
+        run_test(test_program)
