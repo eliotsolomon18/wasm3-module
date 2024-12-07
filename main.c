@@ -257,7 +257,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 
         // Link the print_int() function to the module.
         if ((result = m3_LinkRawFunction(new_runtimes[cpu].module, "custom", "print_int", "i(i)", &print_int)) != NULL) {
-            pr_err("Failed to link print_int() to module: %s. [%i]\n", result, cpu);
+            pr_info("Failed to link print_int() to module: %s. [%i]\n", result, cpu);
         }
 
         // Find the alloc() WASM function in the module.`
