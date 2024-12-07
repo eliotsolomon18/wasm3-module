@@ -302,6 +302,8 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
     // Release the runtime lock.
     spin_unlock_irqrestore(&lock, flags);
 
+    pr_info("Successfully loaded %zu bytes of WASM code.\n", wasm_size);
+
     return len;
 }
 
