@@ -388,9 +388,20 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
             return NF_ACCEPT;
     }
 
+    // Copy skb into wasm memory in case the function wants to modify
+    // TODO: For a quick opt, only copy if the function indicates it wants to modify
+    uint8_t *wasm_skb_data = m3_GetMemory(runtimes[cpu].runtime, NULL, 0);
+    if (wasm_skb_data == NULL) {
+        pr_err("Error mapping skb data to WASM memory.\n");
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
+        put_cpu();
+        return NF_ACCEPT;
+    }
+    memcpy(wasm_skb_data, skb->data, skb->len);
+
     // Call the filter() function.
     M3Result result;
-    if ((result = m3_CallV(runtimes[cpu].filter_func)) != NULL) {
+    if ((result = m3_CallV(runtimes[cpu].filter_func, (uint32_t)wasm_skb_data, skb->len)) != NULL) {
         pr_err("Error calling filter(): %s.\n", result);
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
@@ -405,6 +416,10 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
         put_cpu();
         return NF_ACCEPT;
     }
+
+    // Copy the updated pack back into kernel
+    // Again, only do this if function indicates it wants to modify
+    memcpy(skb->data, wasm_skb_data, skb->len);
 
     // Release the runtime lock.
     spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
