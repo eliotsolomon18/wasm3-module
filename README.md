@@ -63,3 +63,5 @@ $ make clean
 - https://olegkutkov.me/2018/03/14/simple-linux-character-device-driver/
 - https://unix.stackexchange.com/questions/724686/what-is-the-modern-way-of-creating-devices-files-in-dev
 - https://embetronicx.com/tutorials/linux/device-drivers/device-file-creation-for-character-drivers/
+- https://kel.bz/post/netfilter/
+- https://wiki.linuxfoundation.org/networking/sk_buff
