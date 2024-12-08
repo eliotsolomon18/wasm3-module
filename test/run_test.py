@@ -72,8 +72,8 @@ uint16_t ip_fast_csum(const void *iph, unsigned int ihl) {
     return (uint16_t)~sum;
 }
 
-uint32_t filter(struct sk_buff *skb) {
-    struct iphdr *ip_h = (struct iphdr *)skb->data;
+uint32_t filter(struct sk_buff_w *skb, uint32_t len) {
+    struct iphdr_w *ip_h = (struct iphdr_w *)skb->data;
     if (ip_h->ttl > 1) {
         ip_h->ttl--;
         // Re-calculate the checksum (iperf3 flows won't work otherwise)

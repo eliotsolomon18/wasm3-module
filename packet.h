@@ -21,7 +21,7 @@ struct packet_header {
     uint8_t prot;
 };
 
-struct iphdr {
+struct iphdr_w {
     uint8_t ihl;
     uint8_t version;
     uint8_t tos;
@@ -35,7 +35,7 @@ struct iphdr {
     uint32_t daddr;
 };
 
-struct sk_buff {
+struct sk_buff_w {
     unsigned int len;          // Length of the packet data
     unsigned char *data;       // Pointer to the packet data
     unsigned char *head;       // Pointer to the start of the buffer
