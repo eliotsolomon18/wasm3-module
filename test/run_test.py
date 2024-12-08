@@ -49,9 +49,47 @@ filter(void)
 }
 """
 
+test_ipv4_decr_ttl = """
+#include <stdint.h>
+#include "prog.h"
+
+/*
+ * Decrement ttl in ipv4 packet
+ */
+// Need to re-calculate checksum after ttl modification
+uint16_t ip_fast_csum(const void *iph, unsigned int ihl) {
+    const uint32_t *ptr = iph;
+    uint32_t sum = 0;
+    int i;
+
+    for (i = 0; i < ihl; i++) {
+        sum += *ptr++;
+    }
+
+    sum = (sum & 0xFFFF) + (sum >> 16);
+    sum += (sum >> 16);
+
+    return (uint16_t)~sum;
+}
+
+uint32_t filter(struct sk_buff *skb) {
+    struct iphdr *ip_h = (struct iphdr *)skb->data;
+    if (ip_h->ttl > 1) {
+        ip_h->ttl--;
+        // Re-calculate the checksum (iperf3 flows won't work otherwise)
+        ip_h->check = 0;
+        ip_h->check = ip_fast_csum((unsigned char *)ip_h, ip_h->ihl);
+        return ACCEPT;
+    } else {
+        return DROP;
+    }
+}
+""" 
+
 class Result(Enum):
-    SUCCESS = 0
-    TIMEOUT = 1
+    DEFAULT = 0
+    SUCCESS = 1
+    TIMEOUT = 2
 
 def start_server(queue):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -125,6 +163,7 @@ if __name__ == "__main__":
         ("test_dummy", test_dummy, Result.SUCCESS, Result.SUCCESS),
         ("test_tcp_block_23557", test_tcp_block_23557, Result.TIMEOUT, Result.TIMEOUT),
         ("test_tcp_passthrough_23557", test_tcp_passthrough_23557, Result.SUCCESS, Result.SUCCESS),
+        ("test_ipv4_decr_ttl", test_ipv4_decr_ttl, Result.SUCCESS, Result.SUCCESS)
         # What other tests should we run?
     ]
 
