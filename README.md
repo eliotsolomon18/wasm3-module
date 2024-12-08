@@ -1,6 +1,6 @@
 # Wasm3 Kernel Module
 
-This repository contains a kernel module that runs a small WASM program in kernel space. It illustrates how to expose functions from the kernel module to the WASM program as well as how to pass a variable-length data structure from the module to the program.
+This repository contains a kernel module that runs a small WASM program in kernel space. It illustrates how to expose functions from the kernel module to the WASM program as well as how to pass a variable-length data structure from the module to the program. It also hooks into `netfilter` to invoke the WASM program in response to every IPv4 packet.
 
 ## Structure
 
@@ -12,7 +12,7 @@ This repository contains a kernel module that runs a small WASM program in kerne
     - This is a submodule that points to a [fork](https://github.com/eliotsolomon18/wasm3-kernel) of the `wasm3` repository that has been modified to run in kernel space.
     - All the heavy lifting was done by [this fork](https://github.com/bonifaido/wasm3/tree/linux-kernel), but I merged in the latest changes from the [upstream repository](https://github.com/wasm3/wasm3).
 - `wasm/`
-    - This directory contains the WASM program as well as a `Makefile` to compile it and convert its binary form to a C array suitable for inclusion in the kernel module.
+    - This directory contains the WASM program as well as a program that can be used to load it into the kernel. A `Makefile` is provided to automate the process of building and loading the program.
 
 ## Build
 
@@ -23,19 +23,19 @@ $ make
 ## Install
 
 ```
-$ sudo insmod wasm.ko
+$ sudo make install
 ```
 
-## Verify Install
+## Load WASM program
 
 ```
-$ sudo lsmod | grep wasm
+$ sudo make load
 ```
 
 ## Uninstall
 
 ```
-$ sudo rmmod wasm
+$ sudo make remove
 ```
 
 ## Check Output
@@ -43,26 +43,13 @@ $ sudo rmmod wasm
 ```
 $ sudo journalctl --since "1 hour ago" | grep kernel
 ```
-## Grant -  add details later
-- Open first terminal:
-```
-$ sudo dmesg -w
-```
 
-- Open second terminal:
+## Clean up
 
 ```
-$ cd Grant/wasm
 $ make clean
-$ make 
-$ cd ..
-$ make clean 
-$ make 
-$ sudo rmmod wasm
-$ sudo insmod wasm.ko
-$ sudo ./test_print_loader wasm/print_prog.wasm test
-$ sudo ./test_sum_loader wasm/sum_prog.wasm sum
 ```
+
 ## Resources
 
 - https://sysprog21.github.io/lkmpg/
@@ -72,3 +59,14 @@ $ sudo ./test_sum_loader wasm/sum_prog.wasm sum
 - https://surma.dev/things/c-to-webassembly/
 - https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/Memory
 - https://github.com/cisco-open/camblet-driver
+- https://docs.kernel.org/locking/spinlocks.html
+- https://olegkutkov.me/2018/03/14/simple-linux-character-device-driver/
+- https://unix.stackexchange.com/questions/724686/what-is-the-modern-way-of-creating-devices-files-in-dev
+- https://embetronicx.com/tutorials/linux/device-drivers/device-file-creation-for-character-drivers/
+- https://kel.bz/post/netfilter/
+- https://wiki.linuxfoundation.org/networking/sk_buff
+- https://utcc.utoronto.ca/~cks/space/blog/linux/CPUNumbersNotContiguous
+- https://lwn.net/Articles/2220/
+- https://stackoverflow.com/questions/57983653/nr-cpu-ids-vs-nr-cpus-in-linux-kernel
+- https://man7.org/linux/man-pages/man2/delete_module.2.html
+- https://elixir.bootlin.com/linux/v6.8/source/kernel/module/main.c#L698
