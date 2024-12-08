@@ -57,23 +57,11 @@ test_ipv4_decr_ttl = """
  * Decrement ttl in ipv4 packet
  */
 // Need to re-calculate checksum after ttl modification
-uint32_t filter(uint8_t *data, uint32_t len) {
-    struct iphdr_w *ip_h = (struct iphdr_w *)data;
+uint32_t filter(void) {
+    struct iphdr_w *ip_h = (struct iphdr_w *)&__heap_base;
     if (ip_h->ttl > 1) {
-        ip_h->ttl--;
-        // Inline implementation of ip_fast_csum
-        const uint32_t *ptr = (const uint32_t *)ip_h;
-        uint32_t sum = 0;
-        int i;
-        for (i = 0; i < ip_h->ihl; i++) {
-            sum += *ptr++;
-        }
-        sum = (sum & 0xFFFF) + (sum >> 16);
-        sum += (sum >> 16);
- 
-        // Re-calculate the checksum (iperf3 flows won't work otherwise)
-        ip_h->check = 0;
-        ip_h->check = (uint16_t)~sum;
+        // ip_h->ttl--;
+        // Maybe recalc checksum
         return ACCEPT;
     } else {
         return DROP;

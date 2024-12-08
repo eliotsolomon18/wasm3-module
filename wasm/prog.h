@@ -40,6 +40,6 @@ alloc(uint64_t size)
     return &__heap_base;
 }
 
-struct packet_header *header = (struct packet_header *)&__heap_base;
+// struct packet_header *header = (struct packet_header *)&__heap_base;
 
 #endif

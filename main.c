@@ -31,7 +31,7 @@ struct wasm_runtime {
     IM3Module module; // The Wasm3 module
     IM3Function alloc_func; // The allocation function within the Wasm3 module
     IM3Function filter_func; // The filter function within the Wasm3 module
-    struct packet_header *header; // A pointer to the packer header on WASM runtime's heap
+    uint8_t *skb; // The packet buffer
 };
 
 // The reconfiguration lock
@@ -275,25 +275,34 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
             return -EINVAL;
         }
 
-        // Call the alloc() function.
-        if ((result = m3_CallV(new_runtimes[cpu].alloc_func, sizeof(struct packet_header))) != NULL) {
-            pr_err("Error calling alloc(): %s. [%i]\n", result, cpu);
-            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
-            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
-            return -EINVAL;
+        // Set the new runtime's skb buffer
+        if ((result = m3_CallV(runtimes[cpu].alloc_func, 2000)) != NULL) {
+            pr_err("Error calling alloc(): %s.\n", result);
+            spin_unlock_irqrestore(&runtimes[cpu].lock, reconf_flags);
+            put_cpu();
+            return NF_ACCEPT;
         }
 
-        // Fetch the alloc() return value.
+        // Fetch the alloc() return value
         uint64_t alloc_val = 0;
-        if ((result = m3_GetResultsV(new_runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
-            pr_err("Error getting results from alloc(): %s. [%i]\n", result, cpu);
-            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
-            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
-            return -EINVAL;
+        if ((result = m3_GetResultsV(runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
+            pr_err("Error getting results from alloc(): %s.\n", result);
+            spin_unlock_irqrestore(&runtimes[cpu].lock, reconf_flags);
+            put_cpu();
+            return NF_ACCEPT;
         }
 
-        // Compute a pointer to the allocated region.
-        new_runtimes[cpu].header = (struct packet_header *)(m3_GetMemory(new_runtimes[cpu].runtime, NULL, 0) + alloc_val);
+        // Copy skb into wasm memory in case the function wants to modify
+        // TODO: For a quick opt, only copy if the function indicates it wants to modify
+        uint8_t *wasm_skb_data = m3_GetMemory(runtimes[cpu].runtime, NULL, 0) + alloc_val;
+        if (wasm_skb_data == NULL) {
+            pr_err("Error mapping skb data to WASM memory.\n");
+            spin_unlock_irqrestore(&runtimes[cpu].lock, reconf_flags);
+            put_cpu();
+            return NF_ACCEPT;
+        }
+
+        new_runtimes[cpu].skb = wasm_skb_data;
     }
 
     // Install all of the new runtimes.
@@ -318,7 +327,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         runtimes[cpu].module = new_runtimes[cpu].module;
         runtimes[cpu].alloc_func = new_runtimes[cpu].alloc_func;
         runtimes[cpu].filter_func = new_runtimes[cpu].filter_func;
-        runtimes[cpu].header = new_runtimes[cpu].header;
+        runtimes[cpu].skb = new_runtimes[cpu].skb;
 
         // Release the runtime lock.
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
@@ -364,64 +373,15 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
         return NF_ACCEPT;
     }
 
-    // Copy a portion of the packet headers into the runtime's memory.
-    struct iphdr *ip_h = (struct iphdr *)skb_network_header(skb);
-    runtimes[cpu].header->src_ip = ntohl(ip_h->saddr);
-    runtimes[cpu].header->dst_ip = ntohl(ip_h->daddr);
-    runtimes[cpu].header->len = ntohs(ip_h->tot_len);
-    switch (ip_h->protocol) {
-        case IPPROTO_TCP:
-            runtimes[cpu].header->prot = TCP;
-            struct tcphdr *tcp_h = tcp_hdr(skb);
-            runtimes[cpu].header->src_pt = ntohs(tcp_h->source);
-            runtimes[cpu].header->dst_pt = ntohs(tcp_h->dest);
-            break;
-        case IPPROTO_UDP:
-            runtimes[cpu].header->prot = UDP;
-            struct udphdr *udp_h = udp_hdr(skb);
-            runtimes[cpu].header->src_pt = ntohs(udp_h->source);
-            runtimes[cpu].header->dst_pt = ntohs(udp_h->dest);
-            break;
-        default:
-            spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
-            put_cpu();
-            return NF_ACCEPT;
-    }
-
-    // Call the alloc_func to allocate memory for the skb
-    M3Result result;
-    if ((result = m3_CallV(runtimes[cpu].alloc_func, skb->len)) != NULL) {
-        pr_err("Error calling alloc(): %s.\n", result);
-        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
-        put_cpu();
-        return NF_ACCEPT;
-    }
-
-    // Fetch the alloc() return value
-    uint64_t alloc_val = 0;
-    if ((result = m3_GetResultsV(runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
-        pr_err("Error getting results from alloc(): %s.\n", result);
-        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
-        put_cpu();
-        return NF_ACCEPT;
-    }
-
-    // Copy skb into wasm memory in case the function wants to modify
-    // TODO: For a quick opt, only copy if the function indicates it wants to modify
-    uint8_t *wasm_skb_data = m3_GetMemory(runtimes[cpu].runtime, NULL, 0) + alloc_val;
-    if (wasm_skb_data == NULL) {
-        pr_err("Error mapping skb data to WASM memory.\n");
-        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
-        put_cpu();
-        return NF_ACCEPT;
-    }
-    pr_info("Allocated memory at %p\n", wasm_skb_data);
+    // Copy the packet data into the WASM memory.
+    uint8_t *wasm_skb_data = runtimes[cpu].skb;
+    pr_info("Memory for skb on CPU %d at %p -> %p\n", cpu, wasm_skb_data, wasm_skb_data + 2000);
     memcpy(wasm_skb_data, skb->data, skb->len);
 
     // Call the filter() function.
     // TODO: Fix OOB access
     M3Result result_f;
-    if ((result_f = m3_CallV(runtimes[cpu].filter_func, (uint8_t*)wasm_skb_data)) != NULL) {
+    if ((result_f = m3_CallV(runtimes[cpu].filter_func)) != NULL) {
         pr_err("Error calling filter(): %s.\n", result_f);
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
