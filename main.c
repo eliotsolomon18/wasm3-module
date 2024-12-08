@@ -2,13 +2,13 @@
  * main.c - Offer a character device which executes WASM bytecode to filter IPv4 packets.
  */
 
+#include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/printk.h>
-#include <linux/fs.h>
-#include <linux/cdev.h>
 #include <linux/device.h>
+#include <linux/cdev.h>
+#include <linux/fs.h>
 #include <linux/uaccess.h>
-#include <linux/kernel.h>
 #include <linux/spinlock.h>
 #include <linux/cpumask.h>
 #include <linux/netfilter.h>
@@ -18,7 +18,6 @@
 #include <linux/udp.h>
 
 #include "wasm3.h"
-#include "m3_env.h"
 
 #include "packet.h"
 
