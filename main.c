@@ -388,21 +388,41 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
             return NF_ACCEPT;
     }
 
+    // Call the alloc_func to allocate memory for the skb
+    M3Result result;
+    if ((result = m3_CallV(runtimes[cpu].alloc_func, skb->len)) != NULL) {
+        pr_err("Error calling alloc(): %s.\n", result);
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
+        put_cpu();
+        return NF_ACCEPT;
+    }
+
+    // Fetch the alloc() return value
+    uint64_t alloc_val = 0;
+    if ((result = m3_GetResultsV(runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
+        pr_err("Error getting results from alloc(): %s.\n", result);
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
+        put_cpu();
+        return NF_ACCEPT;
+    }
+
     // Copy skb into wasm memory in case the function wants to modify
     // TODO: For a quick opt, only copy if the function indicates it wants to modify
-    uint8_t *wasm_skb_data = m3_GetMemory(runtimes[cpu].runtime, NULL, 0);
+    uint8_t *wasm_skb_data = m3_GetMemory(runtimes[cpu].runtime, NULL, 0) + alloc_val;
     if (wasm_skb_data == NULL) {
         pr_err("Error mapping skb data to WASM memory.\n");
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;
     }
+    pr_info("Allocated memory at %p\n", wasm_skb_data);
     memcpy(wasm_skb_data, skb->data, skb->len);
 
     // Call the filter() function.
-    M3Result result;
-    if ((result = m3_CallV(runtimes[cpu].filter_func, (uint32_t)wasm_skb_data, skb->len)) != NULL) {
-        pr_err("Error calling filter(): %s.\n", result);
+    // TODO: Fix OOB access
+    M3Result result_f;
+    if ((result_f = m3_CallV(runtimes[cpu].filter_func, (uint8_t*)wasm_skb_data)) != NULL) {
+        pr_err("Error calling filter(): %s.\n", result_f);
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;
@@ -410,8 +430,8 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
 
     // Fetch the filter() return value.
     uint32_t filter_val = 0;
-    if ((result = m3_GetResultsV(runtimes[cpu].filter_func, &filter_val)) != NULL) {
-        pr_err("Error getting results from filter(): %s.\n", result);
+    if ((result_f = m3_GetResultsV(runtimes[cpu].filter_func, &filter_val)) != NULL) {
+        pr_err("Error getting results from filter(): %s.\n", result_f);
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;

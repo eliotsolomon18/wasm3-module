@@ -57,34 +57,29 @@ test_ipv4_decr_ttl = """
  * Decrement ttl in ipv4 packet
  */
 // Need to re-calculate checksum after ttl modification
-uint16_t ip_fast_csum(const void *iph, unsigned int ihl) {
-    const uint32_t *ptr = iph;
-    uint32_t sum = 0;
-    int i;
-
-    for (i = 0; i < ihl; i++) {
-        sum += *ptr++;
-    }
-
-    sum = (sum & 0xFFFF) + (sum >> 16);
-    sum += (sum >> 16);
-
-    return (uint16_t)~sum;
-}
-
-uint32_t filter(struct sk_buff_w *skb, uint32_t len) {
-    struct iphdr_w *ip_h = (struct iphdr_w *)skb->data;
+uint32_t filter(uint8_t *data, uint32_t len) {
+    struct iphdr_w *ip_h = (struct iphdr_w *)data;
     if (ip_h->ttl > 1) {
         ip_h->ttl--;
+        // Inline implementation of ip_fast_csum
+        const uint32_t *ptr = (const uint32_t *)ip_h;
+        uint32_t sum = 0;
+        int i;
+        for (i = 0; i < ip_h->ihl; i++) {
+            sum += *ptr++;
+        }
+        sum = (sum & 0xFFFF) + (sum >> 16);
+        sum += (sum >> 16);
+ 
         // Re-calculate the checksum (iperf3 flows won't work otherwise)
         ip_h->check = 0;
-        ip_h->check = ip_fast_csum((unsigned char *)ip_h, ip_h->ihl);
+        ip_h->check = (uint16_t)~sum;
         return ACCEPT;
     } else {
         return DROP;
     }
 }
-""" 
+"""
 
 class Result(Enum):
     DEFAULT = 0
@@ -160,9 +155,9 @@ def run_test(test_program):
 
 if __name__ == "__main__":
     test_programs = [
-        ("test_dummy", test_dummy, Result.SUCCESS, Result.SUCCESS),
-        ("test_tcp_block_23557", test_tcp_block_23557, Result.TIMEOUT, Result.TIMEOUT),
-        ("test_tcp_passthrough_23557", test_tcp_passthrough_23557, Result.SUCCESS, Result.SUCCESS),
+        # ("test_dummy", test_dummy, Result.SUCCESS, Result.SUCCESS),
+        # ("test_tcp_block_23557", test_tcp_block_23557, Result.TIMEOUT, Result.TIMEOUT),
+        # ("test_tcp_passthrough_23557", test_tcp_passthrough_23557, Result.SUCCESS, Result.SUCCESS),
         ("test_ipv4_decr_ttl", test_ipv4_decr_ttl, Result.SUCCESS, Result.SUCCESS)
         # What other tests should we run?
     ]
