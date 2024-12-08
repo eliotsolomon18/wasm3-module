@@ -432,45 +432,29 @@ wasm_cleanup(void)
     // Unregister the netfilter hook.
     nf_unregister_net_hook(&init_net, &nfho);
 
-    // Acquire the reconfiguration lock.
-    unsigned long reconf_flags;
-    spin_lock_irqsave(&reconf_lock, reconf_flags);
+    // At this point, all concurrent handlers should be finished executing.
 
     // Free all of the Wasm3 runtimes.
     for (int cpu = 0; cpu < nr_cpu_ids; cpu++) {
-        // Acquire the runtime lock.
-        unsigned long runtime_flags;
-        spin_lock_irqsave(&runtimes[cpu].lock, runtime_flags);
-
         // Free the runtime if it exists.
         if (runtimes[cpu].runtime != NULL) {
             m3_FreeRuntime(runtimes[cpu].runtime);
-            runtimes[cpu].runtime = NULL;
-            runtimes[cpu].module = NULL;
-            runtimes[cpu].alloc_func = NULL;
-            runtimes[cpu].filter_func = NULL;
-            runtimes[cpu].header = NULL;
         }
 
         // Free the environment if it exists.
         if (runtimes[cpu].env != NULL) {
             m3_FreeEnvironment(runtimes[cpu].env);
-            runtimes[cpu].env = NULL;
         }
-        
-        // Release the runtime lock.
-        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
     }
 
     // Free the code buffer if it exists.
     if (wasm_code != NULL) {
         kfree(wasm_code);
-        wasm_size = 0;
     }
 
-    // Release the reconfiguration lock.
-    spin_unlock_irqrestore(&reconf_lock, reconf_flags);
-
+    // Free the array of runtimes.
+    kfree(runtimes);
+    
     pr_info("Successfully unloaded WASM module.\n");
 }
 
