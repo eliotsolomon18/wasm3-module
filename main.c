@@ -275,34 +275,28 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
             return -EINVAL;
         }
 
-        // Set the new runtime's skb buffer
-        if ((result = m3_CallV(runtimes[cpu].alloc_func, 2000)) != NULL) {
-            pr_err("Error calling alloc(): %s.\n", result);
-            spin_unlock_irqrestore(&runtimes[cpu].lock, reconf_flags);
-            put_cpu();
-            return NF_ACCEPT;
+        // Call the alloc() function.
+        if ((result = m3_CallV(new_runtimes[cpu].alloc_func, 65536)) != NULL) {
+            pr_err("Error calling alloc(): %s. [%i]\n", result, cpu);
+            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+            return -EINVAL;
         }
 
-        // Fetch the alloc() return value
+        // Fetch the alloc() return value.
         uint64_t alloc_val = 0;
-        if ((result = m3_GetResultsV(runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
-            pr_err("Error getting results from alloc(): %s.\n", result);
-            spin_unlock_irqrestore(&runtimes[cpu].lock, reconf_flags);
-            put_cpu();
-            return NF_ACCEPT;
+        if ((result = m3_GetResultsV(new_runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
+            pr_err("Error getting results from alloc(): %s. [%i]\n", result, cpu);
+            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+            return -EINVAL;
         }
 
-        // Copy skb into wasm memory in case the function wants to modify
-        // TODO: For a quick opt, only copy if the function indicates it wants to modify
-        uint8_t *wasm_skb_data = m3_GetMemory(runtimes[cpu].runtime, NULL, 0) + alloc_val;
-        if (wasm_skb_data == NULL) {
-            pr_err("Error mapping skb data to WASM memory.\n");
-            spin_unlock_irqrestore(&runtimes[cpu].lock, reconf_flags);
-            put_cpu();
-            return NF_ACCEPT;
-        }
-
-        new_runtimes[cpu].skb = wasm_skb_data;
+        uint8_t* wasm_skb_data = m3_GetMemory(new_runtimes[cpu].runtime, NULL, 0);
+        
+        pr_info("runtime base: %p and heap base: %p", wasm_skb_data, (wasm_skb_data + alloc_val));
+        
+        new_runtimes[cpu].skb = wasm_skb_data + alloc_val;
     }
 
     // Install all of the new runtimes.
@@ -375,7 +369,8 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
 
     // Copy the packet data into the WASM memory.
     uint8_t *wasm_skb_data = runtimes[cpu].skb;
-    pr_info("Memory for skb on CPU %d at %p -> %p\n", cpu, wasm_skb_data, wasm_skb_data + 2000);
+    pr_info("Memory for skb on CPU %d at %p -> %p\n", cpu, wasm_skb_data, wasm_skb_data + 65536);
+    pr_info("Data length: %d and Len: %d\n", skb->data_len, skb->len);
     memcpy(wasm_skb_data, skb->data, skb->len);
 
     // Call the filter() function.

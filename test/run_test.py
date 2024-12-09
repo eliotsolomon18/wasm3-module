@@ -60,7 +60,7 @@ test_ipv4_decr_ttl = """
 uint32_t filter(void) {
     struct iphdr_w *ip_h = (struct iphdr_w *)&__heap_base;
     if (ip_h->ttl > 1) {
-        // ip_h->ttl--;
+        ip_h->ttl--;
         // Maybe recalc checksum
         return ACCEPT;
     } else {
