@@ -87,7 +87,7 @@ m3ApiRawFunction(print_int)
     m3ApiReturnType(int32_t);
     m3ApiGetArg(int32_t, i);
 
-    pr_info("From WASM: %i. [%i]\n", i, smp_processor_id());
+    pr_info("From WASM: %d. [%i]\n", i, smp_processor_id());
 
     m3ApiReturn(0);
 }
@@ -371,7 +371,15 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     uint8_t *wasm_skb_data = runtimes[cpu].skb;
     pr_info("Memory for skb on CPU %d at %p -> %p\n", cpu, wasm_skb_data, wasm_skb_data + 65536);
     pr_info("Data length: %d and Len: %d\n", skb->data_len, skb->len);
-    memcpy(wasm_skb_data, skb->data, skb->len);
+    struct iphdr* ip_hdr = (struct iphdr*)skb_network_header(skb);
+    if (skb_copy_bits(skb, skb_network_offset(skb), wasm_skb_data, sizeof(struct iphdr)) < 0) {
+        pr_err("Failed to copy IP header to wasm memory\n");
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
+        put_cpu();
+        return NF_DROP;
+    }
+
+    pr_info("IP HEADER: %d\n", ((struct iphdr* )wasm_skb_data)->ttl);
 
     // Call the filter() function.
     // TODO: Fix OOB access
@@ -394,7 +402,7 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
 
     // Copy the updated pack back into kernel
     // Again, only do this if function indicates it wants to modify
-    memcpy(skb->data, wasm_skb_data, skb->len);
+    memcpy(ip_hdr, wasm_skb_data, sizeof(struct iphdr));
 
     // Release the runtime lock.
     spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
