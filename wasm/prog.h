@@ -40,6 +40,9 @@ alloc(uint64_t size)
     return &__heap_base;
 }
 
+// Additional exported functions to prepare heap, allocate, free, and test:
+uint32_t test_mallocation(void);
+
 struct packet_header *header = (struct packet_header *)&__heap_base;
 
 #endif
