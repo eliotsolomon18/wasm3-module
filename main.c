@@ -31,7 +31,12 @@ struct wasm_runtime {
     IM3Module module; // The Wasm3 module
     IM3Function alloc_func; // The allocation function within the Wasm3 module
     IM3Function filter_func; // The filter function within the Wasm3 module
-    struct packet_header *header; // A pointer to the packer header on WASM runtime's heap
+    IM3Function test_mallocation_func; // The test mallocation function
+    struct packet_header *header; // Active pointer for packet header (points to either static or dynamic)
+    struct packet_header *static_header;  // Header allocated via alloc()
+    struct packet_header *dynamic_header; // Header allocated via malloc()
+    bool use_dynamic_alloc;  // Flag to control allocation type
+
 };
 
 // The reconfiguration lock
@@ -110,7 +115,7 @@ wasm_init(void)
     }
 
     // Register the device class.
-    if (IS_ERR(dev_class = class_create("wasm"))) {
+    if (IS_ERR(dev_class = class_create(THIS_MODULE,"wasm"))) { // added THIS_MODULE, was not workign otherwise on AWS
         pr_err("Failed to register the character device class.\n");
         kfree(runtimes);
         return PTR_ERR(dev_class);
@@ -259,41 +264,71 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
             pr_info("Failed to link print_int() to module: %s. [%i]\n", result, cpu);
         }
 
-        // Find the alloc() WASM function in the module.`
-        if ((result = m3_FindFunction(&new_runtimes[cpu].alloc_func, new_runtimes[cpu].runtime, "alloc")) != NULL) {
-            pr_err("Error finding alloc() in module: %s.\n [%i]", result, cpu);
-            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
-            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
-            return -EINVAL;
+        // Default to static allocation
+        new_runtimes[cpu].use_dynamic_alloc = false;
+
+
+       // SECTION 2: Static Allocation Setup
+        if (!new_runtimes[cpu].use_dynamic_alloc) {
+            // Find and setup alloc function
+            if ((result = m3_FindFunction(&new_runtimes[cpu].alloc_func, new_runtimes[cpu].runtime, "alloc")) != NULL) {
+                pr_err("Error finding alloc() in module: %s.\n [%i]", result, cpu);
+                reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+                spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+                return -EINVAL;
+            }
+
+            // Call alloc and get result
+            uint64_t alloc_val = 0;
+            if ((result = m3_CallV(new_runtimes[cpu].alloc_func, sizeof(struct packet_header))) != NULL ||
+                (result = m3_GetResultsV(new_runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
+                pr_err("Error in alloc(): %s. [%i]\n", result, cpu);
+                reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+                spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+                return -EINVAL;
+            }
+
+            void *wasm_memory = m3_GetMemory(new_runtimes[cpu].runtime, NULL, 0);
+            if (!wasm_memory) {
+                pr_err("Failed to get WASM memory for CPU %i.\n", cpu);
+                reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+                spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+                return -EINVAL;
+            }
+            new_runtimes[cpu].static_header = (struct packet_header *)(wasm_memory + alloc_val);
+            new_runtimes[cpu].header = new_runtimes[cpu].static_header;
         }
 
-        // Find the filter() WASM function in the module.
+        // SECTION 3: Dynamic Allocation Setup
+        else {
+            // Find test_mallocation function
+            if ((result = m3_FindFunction(&new_runtimes[cpu].test_mallocation_func, new_runtimes[cpu].runtime, "test_mallocation")) != NULL) {
+                pr_err("Error finding test_mallocation in module: %s. [%i]\n", result, cpu);
+                reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+                spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+                return -EINVAL;
+            }
+
+            // Run test_mallocation
+            if ((result = m3_CallV(new_runtimes[cpu].test_mallocation_func)) != NULL) {
+                pr_err("Error running test_mallocation: %s. [%i]\n", result, cpu);
+                reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+                spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+                return -EINVAL;
+            }
+
+            // Dynamic header will be set during operation
+            new_runtimes[cpu].dynamic_header = NULL;
+            new_runtimes[cpu].header = new_runtimes[cpu].dynamic_header;
+        }
+
+        // Common function setup (filter)
         if ((result = m3_FindFunction(&new_runtimes[cpu].filter_func, new_runtimes[cpu].runtime, "filter")) != NULL) {
             pr_err("Error finding filter() in module: %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -EINVAL;
         }
-
-        // Call the alloc() function.
-        if ((result = m3_CallV(new_runtimes[cpu].alloc_func, sizeof(struct packet_header))) != NULL) {
-            pr_err("Error calling alloc(): %s. [%i]\n", result, cpu);
-            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
-            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
-            return -EINVAL;
-        }
-
-        // Fetch the alloc() return value.
-        uint64_t alloc_val = 0;
-        if ((result = m3_GetResultsV(new_runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
-            pr_err("Error getting results from alloc(): %s. [%i]\n", result, cpu);
-            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
-            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
-            return -EINVAL;
-        }
-
-        // Compute a pointer to the allocated region.
-        new_runtimes[cpu].header = (struct packet_header *)(m3_GetMemory(new_runtimes[cpu].runtime, NULL, 0) + alloc_val);
     }
 
     // Install all of the new runtimes.
@@ -318,7 +353,12 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         runtimes[cpu].module = new_runtimes[cpu].module;
         runtimes[cpu].alloc_func = new_runtimes[cpu].alloc_func;
         runtimes[cpu].filter_func = new_runtimes[cpu].filter_func;
+        runtimes[cpu].test_mallocation_func = new_runtimes[cpu].test_mallocation_func;
+        runtimes[cpu].static_header = new_runtimes[cpu].static_header;
+        runtimes[cpu].dynamic_header = new_runtimes[cpu].dynamic_header;
         runtimes[cpu].header = new_runtimes[cpu].header;
+        runtimes[cpu].use_dynamic_alloc = new_runtimes[cpu].use_dynamic_alloc;
+
 
         // Release the runtime lock.
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);

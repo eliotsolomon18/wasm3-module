@@ -1,5 +1,5 @@
 CC = cc
-CLANG = clang-18
+CLANG = clang
 
 # Default target
 all: wasm-load prog.wasm
