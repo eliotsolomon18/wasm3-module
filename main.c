@@ -391,7 +391,7 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     // Call the filter() function.
     M3Result result;
     if ((result = m3_CallV(runtimes[cpu].filter_func)) != NULL) {
-        pr_err("Error calling filter(): %s.\n", result);
+        pr_err("Error calling filter(): %s. [%i]\n", result, cpu);
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;
@@ -400,7 +400,7 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     // Fetch the filter() return value.
     uint32_t filter_val = 0;
     if ((result = m3_GetResultsV(runtimes[cpu].filter_func, &filter_val)) != NULL) {
-        pr_err("Error getting results from filter(): %s.\n", result);
+        pr_err("Error getting results from filter(): %s. [%i]\n", result, cpu);
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;
