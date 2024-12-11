@@ -14,6 +14,7 @@
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/ip.h>
+#include <net/ip.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
 
@@ -31,7 +32,7 @@ struct wasm_runtime {
     IM3Module module; // The Wasm3 module
     IM3Function alloc_func; // The allocation function within the Wasm3 module
     IM3Function filter_func; // The filter function within the Wasm3 module
-    struct packet_header *header; // A pointer to the packer header on WASM runtime's heap
+    struct iphdr *header; // A pointer to the packer header on WASM runtime's heap
 };
 
 // The reconfiguration lock
@@ -276,7 +277,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         }
 
         // Call the alloc() function.
-        if ((result = m3_CallV(new_runtimes[cpu].alloc_func, sizeof(struct packet_header))) != NULL) {
+        if ((result = m3_CallV(new_runtimes[cpu].alloc_func, sizeof(struct iphdr))) != NULL) {
             pr_err("Error calling alloc(): %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
@@ -293,7 +294,7 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
         }
 
         // Compute a pointer to the allocated region.
-        new_runtimes[cpu].header = (struct packet_header *)(m3_GetMemory(new_runtimes[cpu].runtime, NULL, 0) + alloc_val);
+        new_runtimes[cpu].header = (struct iphdr *)(m3_GetMemory(new_runtimes[cpu].runtime, NULL, 0) + alloc_val);
     }
 
     // Install all of the new runtimes.
@@ -364,28 +365,12 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
         return NF_ACCEPT;
     }
 
-    // Copy a portion of the packet headers into the runtime's memory.
-    struct iphdr *ip_h = (struct iphdr *)skb_network_header(skb);
-    runtimes[cpu].header->src_ip = ntohl(ip_h->saddr);
-    runtimes[cpu].header->dst_ip = ntohl(ip_h->daddr);
-    runtimes[cpu].header->len = ntohs(ip_h->tot_len);
-    switch (ip_h->protocol) {
-        case IPPROTO_TCP:
-            runtimes[cpu].header->prot = TCP;
-            struct tcphdr *tcp_h = tcp_hdr(skb);
-            runtimes[cpu].header->src_pt = ntohs(tcp_h->source);
-            runtimes[cpu].header->dst_pt = ntohs(tcp_h->dest);
-            break;
-        case IPPROTO_UDP:
-            runtimes[cpu].header->prot = UDP;
-            struct udphdr *udp_h = udp_hdr(skb);
-            runtimes[cpu].header->src_pt = ntohs(udp_h->source);
-            runtimes[cpu].header->dst_pt = ntohs(udp_h->dest);
-            break;
-        default:
-            spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
-            put_cpu();
-            return NF_ACCEPT;
+    // Copy the packet's IP header into the runtime's memory.
+    if (skb_copy_bits(skb, skb_network_offset(skb), runtimes[cpu].header, sizeof(struct iphdr)) < 0) {
+        pr_err("Error copying IP header into packet.\n");
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
+        put_cpu();
+        return NF_ACCEPT;
     }
 
     // Call the filter() function.
@@ -404,6 +389,12 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
         put_cpu();
         return NF_ACCEPT;
+    }
+
+    // If filter() returned true, copy the IP header back into the original packet and recompute its checksum.
+    if (filter_val) {
+        memcpy(skb_network_header(skb), runtimes[cpu].header, sizeof(ip_hdr));
+        ip_send_check((struct iphdr *)skb_network_header(skb));
     }
 
     // Release the runtime lock.

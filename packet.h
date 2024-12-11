@@ -7,23 +7,17 @@
 #include <stdint.h>
 #endif
 
-enum packet_protocol {
-    TCP,
-    UDP
-};
-
-struct packet_header {
-    uint32_t src_ip;
-    uint32_t dst_ip;
-    uint16_t src_pt;
-    uint16_t dst_pt;
-    uint16_t len;
-    uint8_t prot;
-};
-
-enum packet_op {
-    DROP,
-    ACCEPT
+struct ip_header {
+    uint8_t     ihl_version;
+    uint8_t     tos;
+    uint16_t	tot_len;
+    uint16_t	id;
+    uint16_t	frag_off;
+    uint8_t     ttl;
+    uint8_t     protocol;
+    uint16_t	check;
+    uint32_t	saddr;
+    uint32_t	daddr;
 };
 
 #endif

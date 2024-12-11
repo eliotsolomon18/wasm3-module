@@ -8,5 +8,9 @@
 uint32_t
 filter(void)
 {
-    return header->prot == TCP && header->dst_pt == 80 ? DROP : ACCEPT;
+    print_int(header->protocol);
+
+    header->ttl--;
+
+    return 1;
 }
