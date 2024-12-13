@@ -51,7 +51,7 @@ int ttl_modify(struct __sk_buff *skb) {
 
     // Hardcode ttl to 1 for experiment
     if (ip->ttl > 1) {
-        ip->ttl = 1;
+        ip->ttl--;
     }
 
     // Update the IP checksum (important)
