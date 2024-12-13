@@ -22,8 +22,8 @@ struct packet_header {
 };
 
 struct iphdr_w {
-    uint8_t ihl;
-    uint8_t version;
+    uint8_t ihl:4,
+            version:4;
     uint8_t tos;
     uint16_t tot_len;
     uint16_t id;

@@ -60,15 +60,14 @@ test_ipv4_decr_ttl = """
 uint32_t filter(void) {
     struct iphdr_w *ip_h = (struct iphdr_w *)&__heap_base;
     // Print packet info
-    print_int((uint32_t)*(&__heap_base));
-    //if (ip_h->ttl > 1) {
-      //  ip_h->ttl--;
-        //print_int(ip_h->ttl);
+    if (ip_h->ttl > 1) {
+      ip_h->ttl--;
+        print_int(ip_h->ttl);
         // Maybe recalc checksum
         return ACCEPT;
-    //} else {
-      //  return DROP;
-    //}
+    } else {
+        return DROP;
+    }
 }
 """
 
