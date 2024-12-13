@@ -70,3 +70,4 @@ $ make clean
 - https://stackoverflow.com/questions/57983653/nr-cpu-ids-vs-nr-cpus-in-linux-kernel
 - https://man7.org/linux/man-pages/man2/delete_module.2.html
 - https://elixir.bootlin.com/linux/v6.8/source/kernel/module/main.c#L698
+- https://github.com/wingo/walloc
