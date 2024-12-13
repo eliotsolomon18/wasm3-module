@@ -399,8 +399,6 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     // Again, only do this if function indicates it wants to modify
     memcpy(skb_network_header(skb), wasm_skb_data, sizeof(ip_hdr));
 
-    pr_info("ttl value: %d\n", ip_hdr->ttl);
-
     // Release the runtime lock.
     spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
 
