@@ -2,13 +2,9 @@
 #define PROG_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "../packet.h"
-
-// Convert between WASM pages and bytes
-#define PAGE_SIZE (64 * 1024)
-#define PAGES_TO_BYTES(p) (p * PAGE_SIZE)
-#define BYTES_TO_PAGES(b) ((b + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE)
 
 // Prototype for print_int() function exposed by the runtime.
 int32_t print_int(int32_t i) __attribute__((
@@ -16,11 +12,14 @@ int32_t print_int(int32_t i) __attribute__((
     __import_name__("print_int")
 ));
 
-// Linker-provided symbol that represents the base of the heap.
-extern unsigned char __heap_base;
+void *malloc(size_t size);
+void free(void *p);
+
+// Stores a pointer to the requested allocation.
+struct packet_header *header = NULL;
 
 // Stores the size of the requested allocation.
-uint64_t data_size = 0;
+uint64_t header_size = 0;
 
 /*
  * Called by the runtime to dynamically allocate a single piece of memory.
@@ -28,18 +27,17 @@ uint64_t data_size = 0;
 void *
 alloc(uint64_t size)
 {
-    // Store the allocation size.
-    data_size = size;
-
-    // Grow the WASM program's linear memory if it is not big enough to fit the allocation.
-    if ((uint64_t)&__heap_base + size >= PAGES_TO_BYTES(__builtin_wasm_memory_size(0))) {
-        __builtin_wasm_memory_grow(0, BYTES_TO_PAGES(PAGES_TO_BYTES(__builtin_wasm_memory_size(0)) - ((uint64_t)&__heap_base + size)));
+    if (header) {
+        if (size > header_size) {
+            free(header);
+            header = malloc(size);
+            header_size = size;
+        }
+    } else {
+        header = malloc(size);
+        header_size = size;
     }
-
-    // Return a pointer to the base of the heap.
-    return &__heap_base;
+    return header;
 }
-
-struct packet_header *header = (struct packet_header *)&__heap_base;
 
 #endif

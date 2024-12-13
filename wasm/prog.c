@@ -8,5 +8,7 @@
 uint32_t
 filter(void)
 {
+    // Can use malloc() and free() as we see fit here...
+
     return header->prot == TCP && header->dst_pt == 80 ? DROP : ACCEPT;
 }
