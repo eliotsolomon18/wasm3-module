@@ -1133,6 +1133,23 @@ node_t *add_node_packet_list() {
     return new_node;
 }
 
+node_t* packet_list_iterator_init(void) {
+    return packet_list->head;
+}
+
+// Takes in an iterator for the packet list, and updates the iterator to traverse the packet list (on the first call for a fresh iterator start = true)
+extern void packet_list_iterator(node_t* curr_node, bool start) {
+    if (start == true) {
+        return curr_node;
+    }
+    if (curr_node == NULL) {
+        return NULL;
+    }
+
+    return curr_node->next;
+    
+}
+
 
 
 
