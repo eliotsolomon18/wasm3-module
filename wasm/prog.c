@@ -8,5 +8,5 @@
 uint32_t
 filter(void)
 {
-    return header->prot == TCP && header->dst_pt == 80 ? DROP : ACCEPT;
+    return packet_list->head->data.prot == TCP && packet_list->head->data.dst_pt == 80 ? DROP : ACCEPT;
 }

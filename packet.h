@@ -26,4 +26,16 @@ enum packet_op {
     ACCEPT
 };
 
+typedef struct n {
+    struct packet_header data;
+    struct n* next;
+} node_t;
+
+typedef struct ll {
+    int list_size;
+    node_t* head;
+} linked_list_t;
+
+
+
 #endif

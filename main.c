@@ -29,9 +29,12 @@ struct wasm_runtime {
     IM3Environment env; // The Wasm3 environment
     IM3Runtime runtime; // The Wasm3 runtime
     IM3Module module; // The Wasm3 module
-    IM3Function alloc_func; // The allocation function within the Wasm3 module
+    IM3Function mm_init_func; // wheap initialization function within the Wasm3 module, call once during runtime setup
+    IM3Function wmalloc_func; // The malloc function within the Wasm3 module
+    IM3Function wfree_func; // The free function within the Wasm3 module
     IM3Function filter_func; // The filter function within the Wasm3 module
-    struct packet_header *header; // A pointer to the packer header on WASM runtime's heap
+    IM3Function packet_list_init_func; // the packet list init fucntion within the Wasm3 module
+    IM3Function add_node_packet_list_func; // The add node function for packet lists within the Wasm3 module
 };
 
 // The reconfiguration lock
@@ -259,9 +262,41 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
             pr_info("Failed to link print_int() to module: %s. [%i]\n", result, cpu);
         }
 
-        // Find the alloc() WASM function in the module.`
-        if ((result = m3_FindFunction(&new_runtimes[cpu].alloc_func, new_runtimes[cpu].runtime, "alloc")) != NULL) {
-            pr_err("Error finding alloc() in module: %s.\n [%i]", result, cpu);
+        // Find the wmalloc() WASM function in the module.
+        if ((result = m3_FindFunction(&new_runtimes[cpu].wmalloc_func, new_runtimes[cpu].runtime, "wmalloc")) != NULL) {
+            pr_err("Error finding wmalloc() in module: %s.\n [%i]", result, cpu);
+            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+            return -EINVAL;
+        }
+
+        // Find the mm_init() WASM function in the module.
+        if ((result = m3_FindFunction(&new_runtimes[cpu].mm_init_func, new_runtimes[cpu].runtime, "mm_init")) != NULL) {
+            pr_err("Error finding mm_init() in module: %s.\n [%i]", result, cpu);
+            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+            return -EINVAL;
+        }
+
+        // Find the wmalloc() WASM function in the module.`
+        if ((result = m3_FindFunction(&new_runtimes[cpu].wfree_func, new_runtimes[cpu].runtime, "wfree")) != NULL) {
+            pr_err("Error finding wfree() in module: %s.\n [%i]", result, cpu);
+            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+            return -EINVAL;
+        }
+
+        // Find the init_packet_list() WASM function in the module.`
+        if ((result = m3_FindFunction(&new_runtimes[cpu].packet_list_init_func, new_runtimes[cpu].runtime, "init_packet_list")) != NULL) {
+            pr_err("Error finding init_packet_list() in module: %s.\n [%i]", result, cpu);
+            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+            return -EINVAL;
+        }
+
+        // Find the add_node_packet_list() WASM function in the module.`
+        if ((result = m3_FindFunction(&new_runtimes[cpu].add_node_packet_list_func, new_runtimes[cpu].runtime, "add_node_packet_list")) != NULL) {
+            pr_err("Error finding init_packet_list() in module: %s.\n [%i]", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -EINVAL;
@@ -275,25 +310,22 @@ cdev_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
             return -EINVAL;
         }
 
-        // Call the alloc() function.
-        if ((result = m3_CallV(new_runtimes[cpu].alloc_func, sizeof(struct packet_header))) != NULL) {
-            pr_err("Error calling alloc(): %s. [%i]\n", result, cpu);
+        // Call the init_packet_list() function.
+        if ((result = m3_CallV(new_runtimes[cpu].packet_list_init_func)) != NULL) {
+            pr_err("Error calling init_packet_list(): %s. [%i]\n", result, cpu);
             reconfigure_abort(cpu, new_wasm_code, new_runtimes);
             spin_unlock_irqrestore(&reconf_lock, reconf_flags);
             return -EINVAL;
         }
 
-        // Fetch the alloc() return value.
-        uint64_t alloc_val = 0;
-        if ((result = m3_GetResultsV(new_runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
-            pr_err("Error getting results from alloc(): %s. [%i]\n", result, cpu);
-            reconfigure_abort(cpu, new_wasm_code, new_runtimes);
-            spin_unlock_irqrestore(&reconf_lock, reconf_flags);
-            return -EINVAL;
-        }
-
-        // Compute a pointer to the allocated region.
-        new_runtimes[cpu].header = (struct packet_header *)(m3_GetMemory(new_runtimes[cpu].runtime, NULL, 0) + alloc_val);
+        // // Fetch the wmalloc() return value.
+        // uint64_t alloc_val = 0;
+        // if ((result = m3_GetResultsV(new_runtimes[cpu].alloc_func, &alloc_val)) != NULL) {
+        //     pr_err("Error getting results from alloc(): %s. [%i]\n", result, cpu);
+        //     reconfigure_abort(cpu, new_wasm_code, new_runtimes);
+        //     spin_unlock_irqrestore(&reconf_lock, reconf_flags);
+        //     return -EINVAL;
+        // }
     }
 
     // Install all of the new runtimes.
@@ -364,23 +396,43 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
         return NF_ACCEPT;
     }
 
+    // Call the add_node_packet_list() function.
+    M3Result result;
+    if (result = m3_CallV(new_runtimes[cpu].add_node_packet_list_func) != NULL) {
+        pr_err("Error calling add_node_packet_list(): %s. [%i]\n", result, cpu);
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
+        put_cpu();
+        return NF_ACCEPT;
+    }
+
+    // Fetch the add_node_packet_list() return value.
+    node_t* list_node = NULL;
+    if ((result = m3_GetResultsV(runtimes[cpu].add_node_packet_list_func, &list_node)) != NULL) {
+        pr_err("Error getting results from add_node_packet_list(): %s. [%i]\n", result, cpu);
+        spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
+        put_cpu();
+        return NF_ACCEPT;
+    }
+
+
     // Copy a portion of the packet headers into the runtime's memory.
     struct iphdr *ip_h = (struct iphdr *)skb_network_header(skb);
-    runtimes[cpu].header->src_ip = ntohl(ip_h->saddr);
-    runtimes[cpu].header->dst_ip = ntohl(ip_h->daddr);
-    runtimes[cpu].header->len = ntohs(ip_h->tot_len);
+
+    list_node->data.src_ip = ntohl(ip_h->saddr);
+    list_node->data.dst_ip = ntohl(ip_h->daddr);
+    list_node->data.len = ntohs(ip_h->tot_len);
     switch (ip_h->protocol) {
         case IPPROTO_TCP:
-            runtimes[cpu].header->prot = TCP;
+            list_node->data.prot = TCP;
             struct tcphdr *tcp_h = tcp_hdr(skb);
-            runtimes[cpu].header->src_pt = ntohs(tcp_h->source);
-            runtimes[cpu].header->dst_pt = ntohs(tcp_h->dest);
+            list_node->data.src_pt = ntohs(tcp_h->source);
+            list_node->data.dst_pt = ntohs(tcp_h->dest);
             break;
         case IPPROTO_UDP:
-            runtimes[cpu].header->prot = UDP;
+            list_node->data.prot = UDP;
             struct udphdr *udp_h = udp_hdr(skb);
-            runtimes[cpu].header->src_pt = ntohs(udp_h->source);
-            runtimes[cpu].header->dst_pt = ntohs(udp_h->dest);
+            list_node->data.src_pt = ntohs(udp_h->source);
+            list_node->data.dst_pt = ntohs(udp_h->dest);
             break;
         default:
             spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
@@ -389,7 +441,6 @@ nf_filter(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
     }
 
     // Call the filter() function.
-    M3Result result;
     if ((result = m3_CallV(runtimes[cpu].filter_func)) != NULL) {
         pr_err("Error calling filter(): %s. [%i]\n", result, cpu);
         spin_unlock_irqrestore(&runtimes[cpu].lock, runtime_flags);
